@@ -1,0 +1,2610 @@
+---
+title: "Analyses_prolific_error"
+author: "Anne"
+date: "4/3/2020"
+output:
+  html_document:
+    number_sections: yes
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '1'
+lang: en-US
+editor_options: 
+  chunk_output_type: inline
+  fig_caption: yes
+  fig_width: 4 
+  fig_height: 4 
+---
+
+# Preparation
+
+```{r loading_packs, eval = FALSE, cache = TRUE, include = F, echo = F}
+knitr::opts_chunk$set(echo = FALSE, results = TRUE, message = FALSE, warning = FALSE, error = FALSE)
+                      
+ipak <- function(pkg){
+  new.pkg <- pkg[!(pkg %in% installed.packages()[, "Package"])]
+  if (length(new.pkg)) 
+    install.packages(new.pkg, dependencies = TRUE)
+  sapply(pkg, require, character.only = TRUE)
+}
+
+packages <- c("mediation", "foreign", "tidyverse","stargazer","multicon", "ggplot2", "plyr", "reshape2", "readxl", 
+              "scales", "grid", "tidyLPA", "Rcpp", "naniar", "dplyr", "car", "mice", "semTools",
+              "rstudioapi", "labelled", "modi", "semPlot", "kulife", "interactions", "emmeans")
+ipak(packages)
+```
+
+```{r setwd, eval = F, include = FALSE, echo = FALSE}
+library(rstudioapi)
+ set_wd <- function() {
+   current_path <- getActiveDocumentContext()$path 
+   setwd(dirname(current_path ))
+   print( getwd() )
+ }
+ set_wd()
+ 
+ getwd()
+```
+
+```{r loading_data, include = F}
+library(rlang)
+library(tidyverse)
+library(foreign)
+library(readxl)
+options(knitr.table.format = function() {
+  if (knitr::is_latex_output()) 'latex' else 'pandoc'
+})
+
+library(haven)
+
+files <- dir(getwd(), pattern = "\\.sav$", full.names = FALSE) 
+files
+df_list <- vector("list", length(files))
+names(df_list) <- files
+read_in <- function(df = files) {
+  for (fname in df) {
+    df_list[[fname]] <- read_sav(fname) 
+  }
+    names(df_list) <- paste0("data_", gsub(".sav","",names(df_list)))
+    ff <- df_list
+}
+
+df_list <- read_in(files)
+
+list2env(df_list,envir=.GlobalEnv)
+
+
+# files <- dir(getwd(), pattern = "\\.xlsx$", full.names = FALSE) 
+# files
+# df_list <- vector("list", length(files))
+# names(df_list) <- files
+# read_in <- function(df = files) {
+#   for (fname in df) {
+#     df_list[[fname]] <- read_excel(fname) 
+#   }
+#     names(df_list) <- paste0("data_", gsub(".xlsx","",names(df_list)))
+#     ff <- df_list
+# }
+# 
+# df_list <- read_in(files)
+# list2env(df_list,envir=.GlobalEnv)
+```
+# India Study 
+
+```{r}
+library(readxl)
+getwd()
+files <- dir(getwd(), pattern = ".*India.xlsx$", full.names = FALSE) 
+files
+df_list <- vector("list", length(files))
+names(df_list) <- files
+read_in <- function(df = files) {
+  for (fname in df) {
+    df_list[[fname]] <- read_excel(fname) 
+  }
+    names(df_list) <- paste0("data_", gsub(".xlsx","",names(df_list)))
+    ff <- df_list
+}
+
+df_list <- read_in(files)
+
+list2env(df_list,envir=.GlobalEnv)
+
+```
+
+## India 1 
+
+```{r}
+# Transform ID Variable
+data_T1_India = transform(data_T1_India, newcol=paste(T1Code_1, T1Code_2, T1Code_3, T1Code_4, sep="_") %>%
+                      as.character(.)) 
+colnames(data_T1_India)[colnames(data_T1_India) == "Duration..in.seconds."] <- "t1duration"
+
+data_T2_India = transform(data_T2_India, newcol=paste(Q683_1, Q683_2, Q683_3, Q683_4, sep="_") %>%
+      as.character(.))
+colnames(data_T2_India)[colnames(data_T2_India) == "Duration..in.seconds."] <- "t2duration"
+
+data_T3_India = transform(data_T3_India, newcol=paste(T3_Code_1, T3_Code_2, T3_Code_3, T3_Code_4, sep="_") %>%
+                      as.character(.))
+colnames(data_T3_India)[colnames(data_T3_India) == "Duration..in.seconds."] <- "t3duration"
+
+data_T4_India = transform(data_T4_India, newcol=paste(T4Code_1, T4Code_2, T4Code_3, T4Code_4, sep="_") %>%
+                      as.character(.)) %>% dplyr::rename(
+                        t4errsel = T4erreff, 
+                        t4errsel_9_TEXT = T4erreff_9_TEXT
+                      )
+names(data_T4_India) <- gsub("erreffort", "errpre", names(data_T4_India), fixed = TRUE)
+colnames(data_T4_India)[colnames(data_T4_India) == "Duration..in.seconds."] <- "t4duration"
+
+```
+
+```{r}
+## Match IDs 
+# Assign correct T1 ID
+library(dplyr)
+matched_ID <- read_excel("Matched_man.xlsx")
+sorted_matchedID <- arrange(matched_ID, T1) %>% 
+  dplyr::rename(Goal_ID = T1)
+
+# T1
+data_T1_India$newcol <- toupper(data_T1_India$newcol)
+data_T1_India$newcol[ data_T1_India$newcol == "NA_NA_NA_NA" ] <- NA
+
+# T2
+data_T2_India$newcol <- toupper(data_T2_India$newcol) %>% as.character(.)
+T2_match <- arrange(data_T2_India,newcol)
+k <- match(T2_match$newcol, unlist(sorted_matchedID[3])) 
+j <- !is.na(k)
+
+T2_match$newcol[j] <- sorted_matchedID$Goal_ID[k[j]]
+T2_match$newcol[ T2_match$newcol == "NA_NA_NA_NA" ] <- NA
+T2_match <- T2_match[!is.na(T2_match$newcol), ]
+
+# T3
+data_T3_India$newcol <- toupper(data_T3_India$newcol)
+T3_match <- arrange(data_T3_India,newcol)
+i <- match(T3_match$newcol, unlist(sorted_matchedID[4])) 
+j <- !is.na(i)
+T3_match$newcol[j] <- sorted_matchedID$Goal_ID[i[j]]
+T3_match$newcol[ T3_match$newcol == "NA_NA_NA_NA" ] <- NA
+T3_match <- T3_match[!is.na(T3_match$newcol), ]
+
+# T4
+data_T4_India$newcol <- toupper(data_T4_India$newcol)
+T4_match <- arrange(data_T4_India,newcol)
+i <- match(T4_match$newcol, unlist(sorted_matchedID[5])) 
+j <- !is.na(i)
+T4_match$newcol[j] <- sorted_matchedID$Goal_ID[i[j]]
+T4_match$newcol[ T4_match$newcol == "NA_NA_NA_NA" ] <- NA
+T4_match <- T4_match[!is.na(T4_match$newcol), ]
+```
+
+```{r}
+# left join
+## Left join 
+#eturn all rows from x, and all columns from x and y. Rows in x with no match in y will have NA values in the new columns. If there are multiple matches between x and y, all combinations of the matches are returned
+
+left_joinT1T2 = left_join(data_T1_India, T2_match, by = "newcol") %>% 
+  plyr::rename(c("T1email_1" = "EMAIL", "StartDate.x" = "Start_T1","EndDate.x" = "End_T1" ,
+                  "StartDate.y" = "Start_T2", "EndDate.y" = "End_T2"))
+
+left_joinT2T3 <- left_join(left_joinT1T2, T3_match, by = "newcol") %>%
+  plyr::rename(c( "StartDate" = "Start_T3","EndDate" = "End_T3"))
+
+left_joinT3T4 <- left_join(left_joinT2T3, T4_match, by = "newcol") %>%
+  plyr::rename(c( "StartDate" = "Start_T4","EndDate" = "End_T4"))
+
+```
+
+
+```{r}
+### Fill  
+# Paste NA rows and rows with data for same IDs, delete duplicate entries (ID / Email)
+fill_df <-
+left_joinT3T4 %>% 
+  group_by(newcol) %>%
+  fill(c(2:154, 156:ncol(left_joinT3T4)), .direction = 'up') %>% 
+  ungroup()
+
+names(fill_df) <- tolower(names(fill_df))
+fill_df <- fill_df %>% dplyr::rename(
+    t2error = q684,
+    t2error_text = q684_9_text)
+
+names(fill_df) <- gsub(x = names(fill_df), pattern = "q685", replacement = "t2errser")  
+names(fill_df) <- gsub(x = names(fill_df), pattern = "q686", replacement = "t2errsel")  
+names(fill_df) <- gsub(x = names(fill_df), pattern = "q687", replacement = "t2errper")  
+names(fill_df) <- gsub(x = names(fill_df), pattern = "q688", replacement = "t2errpre")  
+names(fill_df) <- gsub(x = names(fill_df), pattern = "q689", replacement = "t2errund") 
+```
+
+```{r}
+## attention check items
+
+# attention check items 
+fill_df <- fill_df %>% 
+  dplyr::rename(
+    att_1_t2 = t2chal_2,
+    att_2_t2 = t2accri_4,
+    att_3_t2 = t2thriv_7,
+    att_1_t3 = t3chal_2,
+    att_2_t3 = t3accri_4,
+    att_3_t3 = t3thriv_7,
+    att_1_t4 = t4chal_2,
+    att_2_t4 = t4accri_4,
+    att_3_t4 = t4thriv_7)
+
+fill_df <- fill_df %>% dplyr::select(-matches("att_._"))
+
+## rename items 
+fill_df <- fill_df %>% dplyr::rename(
+  t2chal_2 = t2chal_3,
+  t2chal_3 = t2chal_4,
+  t2accri_4 = t2accri_5,
+  t2accri_5 = t2accri_6,
+  t2accri_6 = t2accri_7,
+  t2thriv_7 = t2thriv_8,
+  t2thriv_8 = t2thriv_9,
+  t2thriv_9 = t2thriv_10,
+  t2thriv_10 = t2thriv_11,
+  t3chal_2 = t3chal_3,
+  t3chal_3 = t3chal_4,
+  t3accri_4 = t3accri_5,
+  t3accri_5 = t3accri_6,
+  t3accri_6 = t3accri_7,
+  t3thriv_7 = t3thriv_8,
+  t3thriv_8 = t3thriv_9,
+  t3thriv_9 = t3thriv_10,
+  t3thriv_10 = t3thriv_11,
+  t4chal_2 = t4chal_3,
+  t4chal_3 = t4chal_4,
+  t4accri_4 = t4accri_5,
+  t4accri_5 = t4accri_6,
+  t4accri_6 = t4accri_7,
+  t4thriv_7 = t4thriv_8,
+  t4thriv_8 = t4thriv_9,
+  t4thriv_9 = t4thriv_10,
+  t4thriv_10 = t4thriv_11,
+)
+```
+
+```{r}
+# remove not self-employed
+fill_df <- fill_df[!(fill_df$t1octyp==4),]
+
+
+# recode date 
+fill_df$t1date_7[fill_df$t1date_7 == 2] = 2002
+fill_df$t1date_7[fill_df$t1date_7 == 17] = 2017
+fill_df$t1date_7[fill_df$t1date_7 == 1] = 2001
+fill_df$t1date_7[fill_df$t1date_7 == 19] = 2019
+fill_df$t1date_7[fill_df$t1date_7 == 0] = 2000
+fill_df$t1date_7[fill_df$t1date_7 == 9] = 2009
+
+# # remove date before 3.5 years 
+# fill_df <- fill_df[!(fill_df$t1date_7<= 2015),]
+# fill_df <- fill_df[!(fill_df$t1date_8<= 5),]
+# 
+# # remove those without innovative development 
+# fill_df <- fill_df %>% separate(t1inno, c("t1inno_1", "t1inno_2", "t1inno_3", "t1inno_4", "t1inno_5")) 
+# fill_df <- fill_df %>% mutate_at(vars(matches("t1inno")), as.numeric)
+# 
+# fill_df <- fill_df[!(fill_df$t1inno_1== 4),]
+```
+
+## India 2 
+
+```{r}
+# Transform ID Variable
+data_T1_2_India = transform(data_T1_2_India, newcol=paste(T1Code_1, T1Code_2, T1Code_3, sep="_") %>%
+                      as.character(.)) 
+colnames(data_T1_2_India)[colnames(data_T1_2_India) == "Duration..in.seconds."] <- "t1duration"
+
+data_T2_2_India = transform(data_T2_2_India, newcol=paste(T2Code_1, T2Code_2, T2Code_3, sep="_") %>%
+      as.character(.))
+
+colnames(data_T2_2_India)[colnames(data_T2_2_India) == "Duration..in.seconds."] <- "t2duration"
+
+data_T3_2_India = transform(data_T3_2_India, newcol=paste(Q679_1, Q679_2, Q679_3, sep="_") %>%
+                      as.character(.))
+
+colnames(data_T3_2_India)[colnames(data_T3_2_India) == "Duration..in.seconds."] <- "t3duration"
+
+data_T4_2_India = transform(data_T4_2_India, newcol=paste(T4Code_1, T4Code_2, T4Code_3, sep="_") %>%
+                      as.character(.)) 
+
+colnames(data_T4_2_India)[colnames(data_T4_2_India) == "Duration..in.seconds."] <- "t4duration"
+
+```
+
+```{r}
+## Delete no fill ins
+
+# T1
+data_T1_2_India$newcol <- toupper(data_T1_2_India$newcol)
+data_T1_2_India$newcol[ data_T1_2_India$newcol == "NA_NA_NA" ] <- NA
+
+# T2
+data_T2_2_India$newcol <- toupper(data_T2_2_India$newcol) %>% as.character(.)
+data_T2_2_India$newcol[ data_T2_2_India$newcol == "NA_NA_NA" ] <- NA
+T2_match <- data_T2_2_India[!is.na(data_T2_2_India$newcol), ]
+
+# T3
+data_T3_2_India$newcol <- toupper(data_T3_2_India$newcol) %>% as.character(.)
+data_T3_2_India$newcol[ data_T3_2_India$newcol == "NA_NA_NA" ] <- NA
+T3_match <- data_T3_2_India[!is.na(data_T3_2_India$newcol),]
+
+# T4
+data_T4_India$newcol <- toupper(data_T4_India$newcol) %>% as.character(.)
+data_T4_India$newcol[ data_T4_India$newcol == "NA_NA_NA" ] <- NA
+T4_match <- data_T4_India[!is.na(data_T4_India$newcol),]
+```
+
+```{r}
+# left join
+## Left join 
+#eturn all rows from x, and all columns from x and y. Rows in x with no match in y will have NA values in the new columns. If there are multiple matches between x and y, all combinations of the matches are returned
+
+left_joinT1T2_2 = left_join(data_T1_2_India, T2_match, by = "newcol") %>% 
+  plyr::rename(c("T1email_1" = "EMAIL", "StartDate.x" = "Start_T1","EndDate.x" = "End_T1" ,
+                  "StartDate.y" = "Start_T2", "EndDate.y" = "End_T2"))
+
+left_joinT2T3_2 <- left_join(left_joinT1T2_2, T3_match, by = "newcol") %>%
+  plyr::rename(c( "StartDate" = "Start_T3","EndDate" = "End_T3"))
+
+
+left_joinT3T4_2 <- left_join(left_joinT2T3_2, T4_match, by = "newcol") %>%
+ plyr::rename(c( "StartDate" = "Start_T4","EndDate" = "End_T4"))
+
+```
+
+```{r}
+## attention check items
+names(left_joinT3T4_2) <- tolower(names(left_joinT3T4_2))
+# attention check items 
+left_joinT3T4_2 <- left_joinT3T4_2 %>% 
+  dplyr::rename(
+    att_1_t2 = t2chal_2,
+    att_2_t2 = t2accri_4,
+    att_3_t2 = t2thriv_7,
+    att_1_t3 = t3chal_2,
+    att_2_t3 = t3accri_4,
+    att_3_t3 = t3thriv_7,
+    att_1_t4 = t4chal_2,
+    att_2_t4 = t4accri_4,
+    att_3_t4 = t4thriv_7)
+
+left_joinT3T4_2 <- left_joinT3T4_2 %>% dplyr::select(-matches("att_._"))
+
+## rename items 
+left_joinT3T4_2 <- left_joinT3T4_2 %>% dplyr::rename(
+  t2chal_2 = t2chal_3,
+  t2chal_3 = t2chal_4,
+  t2accri_4 = t2accri_5,
+  t2accri_5 = t2accri_6,
+  t2accri_6 = t2accri_7,
+  t2thriv_7 = t2thriv_8,
+  t2thriv_8 = t2thriv_9,
+  t2thriv_9 = t2thriv_10,
+  t2thriv_10 = t2thriv_11,
+  t3chal_2 = t3chal_3,
+  t3chal_3 = t3chal_4,
+  t3accri_4 = t3accri_5,
+  t3accri_5 = t3accri_6,
+  t3accri_6 = t3accri_7,
+  t3thriv_7 = t3thriv_8,
+  t3thriv_8 = t3thriv_9,
+  t3thriv_9 = t3thriv_10,
+  t3thriv_10 = t3thriv_11,
+  t4chal_2 = t4chal_3,
+  t4chal_3 = t4chal_4,
+  t4accri_4 = t4accri_5,
+  t4accri_5 = t4accri_6,
+  t4accri_6 = t4accri_7,
+  t4thriv_7 = t4thriv_8,
+  t4thriv_8 = t4thriv_9,
+  t4thriv_9 = t4thriv_10,
+  t4thriv_10 = t4thriv_11,
+)
+```
+
+```{r}
+# remove not self-employed
+left_joinT3T4_2 <- left_joinT3T4_2[!(left_joinT3T4_2$t1octyp==4),]
+
+
+# recode business founded 
+names(left_joinT3T4_2)[names(left_joinT3T4_2) == "t1date_1...34"] <- "t1date_7"
+names(left_joinT3T4_2)[names(left_joinT3T4_2) == "t1date_1...35"] <- "t1date_8"
+
+left_joinT3T4_2$t1date_7[left_joinT3T4_2$t1date_7 == 1] = 2000
+left_joinT3T4_2$t1date_7[left_joinT3T4_2$t1date_7 == 3] = 2001
+left_joinT3T4_2$t1date_7[left_joinT3T4_2$t1date_7 == 5] = 2002
+left_joinT3T4_2$t1date_7[left_joinT3T4_2$t1date_7 == 7] = 2003
+left_joinT3T4_2$t1date_7[left_joinT3T4_2$t1date_7 == 9] = 2004
+left_joinT3T4_2$t1date_7[left_joinT3T4_2$t1date_7 == 11] = 2005
+left_joinT3T4_2$t1date_7[left_joinT3T4_2$t1date_7 == 13] = 2006
+left_joinT3T4_2$t1date_7[left_joinT3T4_2$t1date_7 == 15] = 2007
+left_joinT3T4_2$t1date_7[left_joinT3T4_2$t1date_7 == 17] = 2008
+left_joinT3T4_2$t1date_7[left_joinT3T4_2$t1date_7 == 19] = 2009
+left_joinT3T4_2$t1date_7[left_joinT3T4_2$t1date_7 == 21] = 2010
+left_joinT3T4_2$t1date_7[left_joinT3T4_2$t1date_7 == 23] = 2011
+left_joinT3T4_2$t1date_7[left_joinT3T4_2$t1date_7 == 25] = 2012
+left_joinT3T4_2$t1date_7[left_joinT3T4_2$t1date_7 == 27] = 2013
+left_joinT3T4_2$t1date_7[left_joinT3T4_2$t1date_7 == 29] = 2014
+left_joinT3T4_2$t1date_7[left_joinT3T4_2$t1date_7 == 31] = 2015
+left_joinT3T4_2$t1date_7[left_joinT3T4_2$t1date_7 == 33] = 2016
+left_joinT3T4_2$t1date_7[left_joinT3T4_2$t1date_7 == 35] = 2017
+left_joinT3T4_2$t1date_7[left_joinT3T4_2$t1date_7 == 37] = 2018
+left_joinT3T4_2$t1date_7[left_joinT3T4_2$t1date_7 == 39] = 2019
+left_joinT3T4_2$t1date_7[left_joinT3T4_2$t1date_7 == 41] = 2020
+
+
+# # remove date before 3.5 years 
+# left_joinT3T4_2 <- left_joinT3T4_2[!(left_joinT3T4_2$t1date_7<= 2015),]
+# left_joinT3T4_2 <- left_joinT3T4_2[!(left_joinT3T4_2$t1date_8<= 5),]
+# 
+# # remove those without innovative development 
+# left_joinT3T4_2 <- left_joinT3T4_2 %>% separate(t1inno, c("t1inno_1", "t1inno_2", "t1inno_3", "t1inno_4", "t1inno_5")) 
+# left_joinT3T4_2 <- left_joinT3T4_2 %>% mutate_at(vars(matches("t1inno")), as.numeric)
+# 
+# left_joinT3T4_2 <- left_joinT3T4_2[!(left_joinT3T4_2$t1inno_1== 4),]
+```
+
+```{r}
+# rbind
+names(left_joinT3T4_2) <- tolower(names(left_joinT3T4_2))
+India_df <- rbind.fill(fill_df, left_joinT3T4_2)
+
+### Outlist 
+# Team eamil addresses
+outlist <- c("a.k.kleine@rug.nl", "rahul.fpm1711@iimkashipur.ac.in", "safal.batra@iimkashipur.ac.in", "a.k.kleine@rug.nl", "sss@gmail.com")
+India_df <- India_df[ ! India_df$email %in% outlist, ]
+```
+
+```{r}
+# delete duplicates 
+India_df$email <- tolower(India_df$email)
+aprime<-India_df[!is.na(India_df$email),]
+aNA<-India_df[is.na(India_df$email),]
+
+India_df_2 <-aprime[!duplicated(aprime$email),]
+
+India_df<-rbind(India_df_2, aNA)
+India_df$email
+
+
+India_df$newcol <- tolower(India_df$newcol)
+aprime<-India_df[!is.na(India_df$newcol),]
+aNA<-India_df[is.na(India_df$newcol),]
+
+India_df_2 <-aprime[!duplicated(aprime$newcol),]
+
+India_df<-rbind(India_df_2, aNA)
+
+
+India_df <- India_df[!is.na(India_df$t1octyp),]
+
+
+# change BAS2 items (align with prolific)i
+names(India_df) <- gsub("t1bas2_6", "t1bas2_7", names(India_df))
+names(India_df) <- gsub("t1bas2_5", "t1bas2_6", names(India_df))
+names(India_df) <- gsub("t1bas2_4", "t1bas2_5", names(India_df))
+names(India_df) <- gsub("t1bas2_3", "t1bas2_4", names(India_df))
+names(India_df) <- gsub("t1bas2_2", "t1bas2_3", names(India_df))
+names(India_df) <- gsub("t1bas2_1", "t1bas2_2", names(India_df))
+```
+
+```{r}
+India_df <- India_df %>% dplyr::rename(
+  t1id = newcol
+)
+
+## Select columns
+df_demo_india <- India_df %>% dplyr::select(matches("t1id|t1octyp|t1octyp.|t1expt_7|t1senr|t1found|t1date_7|t1date_8|t1inno|t1owner|t1coown|t1coownn_4|t1perown_1|t1func|t1mbus|t1mbusn_1|t1indu|t1prod|t1opnec|t1count|t1age_4|t1sex|t1lang|t1edu|t1child|t1chin|t2emp|t2empn_1|t2act.|t2sumcap|t2capit|t2how_.|t2hod_.|t.corona_1"))
+
+error_df_india <- India_df %>% dplyr::select(matches("T1ID|t.error|t.errser_.|t.errsel|t.errper_.|t.errpre_.|t.errund_."))
+
+# adjust error variable
+error_df_india <- error_df_india %>% separate(t1error, c("t1error_1", "t1error_2", "t1error_3", "t1error_4", "t1error_5", "t1error_6", "t1error_7", "t1error_8", "t1error_9"))
+
+error_df_india$t1error_1 <- ifelse(error_df_india$t1error_1 == '1' | error_df_india$t1error_2 == '1', '1', NA)
+error_df_india$t1error_2 <- ifelse(error_df_india$t1error_1 == '2' | error_df_india$t1error_2 == '2' | error_df_india$t1error_3 == '2' | error_df_india$t1error_4 == '2' | error_df_india$t1error_5 == '2' | error_df_india$t1error_6 == '2' | error_df_india$t1error_7 == '2' | error_df_india$t1error_8 == '2' | error_df_india$t1error_9 == '2', '1', NA)
+error_df_india$t1error_3 <- ifelse(error_df_india$t1error_1 == '3' | error_df_india$t1error_2 == '3' | error_df_india$t1error_3 == '3' | error_df_india$t1error_4 == '3' | error_df_india$t1error_5 == '3' | error_df_india$t1error_6 == '3' | error_df_india$t1error_7 == '3' | error_df_india$t1error_8 == '3' | error_df_india$t1error_9 == '3', '1', NA)
+error_df_india$t1error_4 <- ifelse(error_df_india$t1error_1 == '4' | error_df_india$t1error_2 == '4' | error_df_india$t1error_3 == '4' | error_df_india$t1error_4 == '4' | error_df_india$t1error_5 == '4' | error_df_india$t1error_6 == '4' | error_df_india$t1error_7 == '4' | error_df_india$t1error_8 == '4' | error_df_india$t1error_9 == '4', '1', NA)
+error_df_india$t1error_5 <- ifelse(error_df_india$t1error_1 == '5' | error_df_india$t1error_2 == '5' | error_df_india$t1error_3 == '5' | error_df_india$t1error_4 == '5' | error_df_india$t1error_5 == '5' | error_df_india$t1error_6 == '5' | error_df_india$t1error_7 == '5' | error_df_india$t1error_8 == '5' | error_df_india$t1error_9 == '5', '1', NA)
+error_df_india$t1error_6 <- ifelse(error_df_india$t1error_1 == '6' | error_df_india$t1error_2 == '6' | error_df_india$t1error_3 == '6' | error_df_india$t1error_4 == '6' | error_df_india$t1error_5 == '6' | error_df_india$t1error_6 == '6' | error_df_india$t1error_7 == '6' | error_df_india$t1error_8 == '6' | error_df_india$t1error_9 == '6', '1', NA)
+error_df_india$t1error_7 <- ifelse(error_df_india$t1error_1 == '7' | error_df_india$t1error_2 == '7' | error_df_india$t1error_3 == '7' | error_df_india$t1error_4 == '7' | error_df_india$t1error_5 == '7' | error_df_india$t1error_6 == '7' | error_df_india$t1error_7 == '7' | error_df_india$t1error_8 == '7' | error_df_india$t1error_9 == '7', '1', NA)
+error_df_india$t1error_8 <- ifelse(error_df_india$t1error_1 == '8' | error_df_india$t1error_2 == '8' | error_df_india$t1error_3 == '8' | error_df_india$t1error_4 == '8' | error_df_india$t1error_5 == '8' | error_df_india$t1error_6 == '8' | error_df_india$t1error_7 == '8' | error_df_india$t1error_8 == '8' | error_df_india$t1error_9 == '8', '1', NA)
+error_df_india$t1error_9 <- ifelse(error_df_india$t1error_1 == '9' | error_df_india$t1error_2 == '9' | error_df_india$t1error_3 == '9' | error_df_india$t1error_4 == '9' | error_df_india$t1error_5 == '9' | error_df_india$t1error_6 == '9' | error_df_india$t1error_7 == '9' | error_df_india$t1error_8 == '9' | error_df_india$t1error_9 == '9', '1', NA)
+
+error_df_india <- error_df_india %>% separate(t2error, c("t2error_1", "t2error_2", "t2error_3", "t2error_4", "t2error_5", "t2error_6", "t2error_7", "t2error_8", "t2error_9"))
+error_df_india$t2error_1 <- ifelse(error_df_india$t2error_1 == '1' | error_df_india$t2error_2 == '1', '1', NA)
+error_df_india$t2error_2 <- ifelse(error_df_india$t2error_1 == '2' | error_df_india$t2error_2 == '2' | error_df_india$t2error_3 == '2' | error_df_india$t2error_4 == '2' | error_df_india$t2error_5 == '2' | error_df_india$t2error_6 == '2' | error_df_india$t2error_7 == '2' | error_df_india$t2error_8 == '2' | error_df_india$t2error_9 == '2', '1', NA)
+error_df_india$t2error_3 <- ifelse(error_df_india$t2error_1 == '3' | error_df_india$t2error_2 == '3' | error_df_india$t2error_3 == '3' | error_df_india$t2error_4 == '3' | error_df_india$t2error_5 == '3' | error_df_india$t2error_6 == '3' | error_df_india$t2error_7 == '3' | error_df_india$t2error_8 == '3' | error_df_india$t2error_9 == '3', '1', NA)
+error_df_india$t2error_4 <- ifelse(error_df_india$t2error_1 == '4' | error_df_india$t2error_2 == '4' | error_df_india$t2error_3 == '4' | error_df_india$t2error_4 == '4' | error_df_india$t2error_5 == '4' | error_df_india$t2error_6 == '4' | error_df_india$t2error_7 == '4' | error_df_india$t2error_8 == '4' | error_df_india$t2error_9 == '4', '1', NA)
+error_df_india$t2error_5 <- ifelse(error_df_india$t2error_1 == '5' | error_df_india$t2error_2 == '5' | error_df_india$t2error_3 == '5' | error_df_india$t2error_4 == '5' | error_df_india$t2error_5 == '5' | error_df_india$t2error_6 == '5' | error_df_india$t2error_7 == '5' | error_df_india$t2error_8 == '5' | error_df_india$t2error_9 == '5', '1', NA)
+error_df_india$t2error_6 <- ifelse(error_df_india$t2error_1 == '6' | error_df_india$t2error_2 == '6' | error_df_india$t2error_3 == '6' | error_df_india$t2error_4 == '6' | error_df_india$t2error_5 == '6' | error_df_india$t2error_6 == '6' | error_df_india$t2error_7 == '6' | error_df_india$t2error_8 == '6' | error_df_india$t2error_9 == '6', '1', NA)
+error_df_india$t2error_7 <- ifelse(error_df_india$t2error_1 == '7' | error_df_india$t2error_2 == '7' | error_df_india$t2error_3 == '7' | error_df_india$t2error_4 == '7' | error_df_india$t2error_5 == '7' | error_df_india$t2error_6 == '7' | error_df_india$t2error_7 == '7' | error_df_india$t2error_8 == '7' | error_df_india$t2error_9 == '7', '1', NA)
+error_df_india$t2error_8 <- ifelse(error_df_india$t2error_1 == '8' | error_df_india$t2error_2 == '8' | error_df_india$t2error_3 == '8' | error_df_india$t2error_4 == '8' | error_df_india$t2error_5 == '8' | error_df_india$t2error_6 == '8' | error_df_india$t2error_7 == '8' | error_df_india$t2error_8 == '8' | error_df_india$t2error_9 == '8', '1', NA)
+error_df_india$t2error_9 <- ifelse(error_df_india$t2error_1 == '9' | error_df_india$t2error_2 == '9' | error_df_india$t2error_3 == '9' | error_df_india$t2error_4 == '9' | error_df_india$t2error_5 == '9' | error_df_india$t2error_6 == '9' | error_df_india$t2error_7 == '9' | error_df_india$t2error_8 == '9' | error_df_india$t2error_9 == '9', '1', NA)
+
+error_df_india <- error_df_india %>% separate(t3error, c("t3error_1", "t3error_2", "t3error_3", "t3error_4", "t3error_5", "t3error_6", "t3error_7", "t3error_8", "t3error_9"))
+error_df_india$t3error_1 <- ifelse(error_df_india$t3error_1 == '1' | error_df_india$t3error_2 == '1', '1', NA)
+error_df_india$t3error_2 <- ifelse(error_df_india$t3error_1 == '2' | error_df_india$t3error_2 == '2' | error_df_india$t3error_3 == '2' | error_df_india$t3error_4 == '2' | error_df_india$t3error_5 == '2' | error_df_india$t3error_6 == '2' | error_df_india$t3error_7 == '2' | error_df_india$t3error_8 == '2' | error_df_india$t3error_9 == '2', '1', NA)
+error_df_india$t3error_3 <- ifelse(error_df_india$t3error_1 == '3' | error_df_india$t3error_2 == '3' | error_df_india$t3error_3 == '3' | error_df_india$t3error_4 == '3' | error_df_india$t3error_5 == '3' | error_df_india$t3error_6 == '3' | error_df_india$t3error_7 == '3' | error_df_india$t3error_8 == '3' | error_df_india$t3error_9 == '3', '1', NA)
+error_df_india$t3error_4 <- ifelse(error_df_india$t3error_1 == '4' | error_df_india$t3error_2 == '4' | error_df_india$t3error_3 == '4' | error_df_india$t3error_4 == '4' | error_df_india$t3error_5 == '4' | error_df_india$t3error_6 == '4' | error_df_india$t3error_7 == '4' | error_df_india$t3error_8 == '4' | error_df_india$t3error_9 == '4', '1', NA)
+error_df_india$t3error_5 <- ifelse(error_df_india$t3error_1 == '5' | error_df_india$t3error_2 == '5' | error_df_india$t3error_3 == '5' | error_df_india$t3error_4 == '5' | error_df_india$t3error_5 == '5' | error_df_india$t3error_6 == '5' | error_df_india$t3error_7 == '5' | error_df_india$t3error_8 == '5' | error_df_india$t3error_9 == '5', '1', NA)
+error_df_india$t3error_6 <- ifelse(error_df_india$t3error_1 == '6' | error_df_india$t3error_2 == '6' | error_df_india$t3error_3 == '6' | error_df_india$t3error_4 == '6' | error_df_india$t3error_5 == '6' | error_df_india$t3error_6 == '6' | error_df_india$t3error_7 == '6' | error_df_india$t3error_8 == '6' | error_df_india$t3error_9 == '6', '1', NA)
+error_df_india$t3error_7 <- ifelse(error_df_india$t3error_1 == '7' | error_df_india$t3error_2 == '7' | error_df_india$t3error_3 == '7' | error_df_india$t3error_4 == '7' | error_df_india$t3error_5 == '7' | error_df_india$t3error_6 == '7' | error_df_india$t3error_7 == '7' | error_df_india$t3error_8 == '7' | error_df_india$t3error_9 == '7', '1', NA)
+error_df_india$t3error_8 <- ifelse(error_df_india$t3error_1 == '8' | error_df_india$t3error_2 == '8' | error_df_india$t3error_3 == '8' | error_df_india$t3error_4 == '8' | error_df_india$t3error_5 == '8' | error_df_india$t3error_6 == '8' | error_df_india$t3error_7 == '8' | error_df_india$t3error_8 == '8' | error_df_india$t3error_9 == '8', '1', NA)
+error_df_india$t3error_9 <- ifelse(error_df_india$t3error_1 == '9' | error_df_india$t3error_2 == '9' | error_df_india$t3error_3 == '9' | error_df_india$t3error_4 == '9' | error_df_india$t3error_5 == '9' | error_df_india$t3error_6 == '9' | error_df_india$t3error_7 == '9' | error_df_india$t3error_8 == '9' | error_df_india$t3error_9 == '9', '1', NA)
+
+error_df_india <- error_df_india %>% separate(t4error, c("t4error_1", "t4error_2", "t4error_3", "t4error_4", "t4error_5", "t4error_6", "t4error_7", "t4error_8", "t4error_9"))
+error_df_india$t4error_1 <- ifelse(error_df_india$t4error_1 == '1' | error_df_india$t4error_2 == '1', '1', NA)
+error_df_india$t4error_2 <- ifelse(error_df_india$t4error_1 == '2' | error_df_india$t4error_2 == '2' | error_df_india$t4error_3 == '2' | error_df_india$t4error_4 == '2' | error_df_india$t4error_5 == '2' | error_df_india$t4error_6 == '2' | error_df_india$t4error_7 == '2' | error_df_india$t4error_8 == '2' | error_df_india$t4error_9 == '2', '1', NA)
+error_df_india$t4error_3 <- ifelse(error_df_india$t4error_1 == '3' | error_df_india$t4error_2 == '3' | error_df_india$t4error_3 == '3' | error_df_india$t4error_4 == '3' | error_df_india$t4error_5 == '3' | error_df_india$t4error_6 == '3' | error_df_india$t4error_7 == '3' | error_df_india$t4error_8 == '3' | error_df_india$t4error_9 == '3', '1', NA)
+error_df_india$t4error_4 <- ifelse(error_df_india$t4error_1 == '4' | error_df_india$t4error_2 == '4' | error_df_india$t4error_3 == '4' | error_df_india$t4error_4 == '4' | error_df_india$t4error_5 == '4' | error_df_india$t4error_6 == '4' | error_df_india$t4error_7 == '4' | error_df_india$t4error_8 == '4' | error_df_india$t4error_9 == '4', '1', NA)
+error_df_india$t4error_5 <- ifelse(error_df_india$t4error_1 == '5' | error_df_india$t4error_2 == '5' | error_df_india$t4error_3 == '5' | error_df_india$t4error_4 == '5' | error_df_india$t4error_5 == '5' | error_df_india$t4error_6 == '5' | error_df_india$t4error_7 == '5' | error_df_india$t4error_8 == '5' | error_df_india$t4error_9 == '5', '1', NA)
+error_df_india$t4error_6 <- ifelse(error_df_india$t4error_1 == '6' | error_df_india$t4error_2 == '6' | error_df_india$t4error_3 == '6' | error_df_india$t4error_4 == '6' | error_df_india$t4error_5 == '6' | error_df_india$t4error_6 == '6' | error_df_india$t4error_7 == '6' | error_df_india$t4error_8 == '6' | error_df_india$t4error_9 == '6', '1', NA)
+error_df_india$t4error_7 <- ifelse(error_df_india$t4error_1 == '7' | error_df_india$t4error_2 == '7' | error_df_india$t4error_3 == '7' | error_df_india$t4error_4 == '7' | error_df_india$t4error_5 == '7' | error_df_india$t4error_6 == '7' | error_df_india$t4error_7 == '7' | error_df_india$t4error_8 == '7' | error_df_india$t4error_9 == '7', '1', NA)
+error_df_india$t4error_8 <- ifelse(error_df_india$t4error_1 == '8' | error_df_india$t4error_2 == '8' | error_df_india$t4error_3 == '8' | error_df_india$t4error_4 == '8' | error_df_india$t4error_5 == '8' | error_df_india$t4error_6 == '8' | error_df_india$t4error_7 == '8' | error_df_india$t4error_8 == '8' | error_df_india$t4error_9 == '8', '1', NA)
+error_df_india$t4error_9 <- ifelse(error_df_india$t4error_1 == '9' | error_df_india$t4error_2 == '9' | error_df_india$t4error_3 == '9' | error_df_india$t4error_4 == '9' | error_df_india$t4error_5 == '9' | error_df_india$t4error_6 == '9' | error_df_india$t4error_7 == '9' | error_df_india$t4error_8 == '9' | error_df_india$t4error_9 == '9', '1', NA)
+
+df_scales_india <- India_df %>% dplyr::select(matches("t1id|t.chal_.|t.threat_.|t.hindr_.|t.accri_.|t.exploi_.|t.explor_.|t.bis_.|t.bas._.|t.gopro_.|t.thriv_."))
+```
+
+
+## Error summaries
+
+```{r error_count,include = F}
+# Add variable with count number of errors 
+library(tidyverse)
+library(splitstackshape)#
+
+error_df <- error_df_india %>% dplyr::select(matches("t1id|t.error|t.errser_.|t.errsel|t.errper_.|t.errpre_.|t.errund_."))
+
+error_df <- error_df_india %>% dplyr::select(-matches("ser_._text|errsel_._text|errper_._text|errpre_._text|email")) 
+
+## Error variables prolific
+# assign errser for error selected
+names(error_df)
+error_df$Errser <- mapply("[", asplit(error_df[11:19], 1), error_df$t1errsel)
+error_df$Errser
+
+# error performance score
+error_df$Errper <- mapply("[", asplit(error_df[21:29], 1), error_df$t1errsel)
+error_df$Errper
+
+
+# Error prevention scores
+error_df$Errpre <- mapply("[", asplit(error_df[30:38], 1), error_df$t1errsel)
+error_df$Errpre
+
+### Error understanding 
+error_df$Errund <- error_df$t1errund_1
+error_df$Errsel <- error_df$t1errsel
+
+Err_sum <- error_df %>% dplyr::select(Errsel, Errser, Errper, Errpre)
+
+df_scales_india <- cbind(Err_sum, df_scales_india)
+
+```
+
+
+```{r recode, include = F}
+## recode
+df_scales_india <-
+df_scales_india %>%
+mutate_at(vars(c("t1accri_2", "t1bis_4", "t1bis_6", "t1thriv_4","t1thriv_10",
+                 "t2accri_2","t2thriv_4","t2thriv_10",
+                 "t3accri_2","t3thriv_4","t3thriv_10",
+                 "t4accri_2", "t1bis_4", "t4bis_6", "t4thriv_4", "t4thriv_10"
+                 )),
+            ~ (8 - .))
+
+df_scales_india <-
+df_scales_india %>%
+mutate_at(vars(c("t1gopro_2", "t1gopro_4",
+                 "t2gopro_2", "t2gopro_4",
+                 "t3gopro_2", "t3gopro_4",
+                 "t4gopro_2", "t4gopro_4")),
+            ~ (6 - .))
+
+# delete double bas item
+df_scales_india <- df_scales_india %>% dplyr::select(-matches("t1bas2_1|email"))
+```
+
+
+```{r rename, include = F}
+names(df_scales_india) <- gsub("bas1_1", "basre_1", names(df_scales_india))
+names(df_scales_india) <- gsub("bas1_2", "basre_2", names(df_scales_india))
+names(df_scales_india) <- gsub("bas1_3", "basre_3", names(df_scales_india))
+names(df_scales_india) <- gsub("bas1_4", "basre_4", names(df_scales_india))
+names(df_scales_india) <- gsub("bas1_5", "basre_5", names(df_scales_india))
+names(df_scales_india) <- gsub("bas1_6", "basdr_1", names(df_scales_india))
+names(df_scales_india) <- gsub("bas1_7", "basdr_2", names(df_scales_india))
+
+names(df_scales_india) <- gsub("t1bas2_2", "t1basdr_3", names(df_scales_india))
+names(df_scales_india) <- gsub("t1bas2_3", "t1basdr_4", names(df_scales_india))
+names(df_scales_india) <- gsub("t1bas2_4", "t1basfu_1", names(df_scales_india))
+names(df_scales_india) <- gsub("t1bas2_5", "t1basfu_2", names(df_scales_india))
+names(df_scales_india) <- gsub("t1bas2_6", "t1basfu_3", names(df_scales_india))
+names(df_scales_india) <- gsub("t1bas2_7", "t1basfu_4", names(df_scales_india))
+
+names(df_scales_india) <- gsub("bas2_1", "basdr_3", names(df_scales_india))
+names(df_scales_india) <- gsub("bas2_2", "basdr_4", names(df_scales_india))
+names(df_scales_india) <- gsub("bas2_3", "basfu_1", names(df_scales_india))
+names(df_scales_india) <- gsub("bas2_4", "basfu_2", names(df_scales_india))
+names(df_scales_india) <- gsub("bas2_5", "basfu_3", names(df_scales_india))
+names(df_scales_india) <- gsub("bas2_6", "basfu_4", names(df_scales_india))
+
+vita_lean_df <- df_scales_india %>% dplyr::select(matches("thriv"))
+names(vita_lean_df) <- gsub("thriv_10", "vita_5", names(vita_lean_df))
+names(vita_lean_df) <- gsub("thriv_1", "learn_1", names(vita_lean_df))
+names(vita_lean_df) <- gsub("thriv_2", "learn_2", names(vita_lean_df))
+names(vita_lean_df) <- gsub("thriv_3", "learn_3", names(vita_lean_df))
+names(vita_lean_df) <- gsub("thriv_4", "learn_4", names(vita_lean_df))
+names(vita_lean_df) <- gsub("thriv_5", "learn_5", names(vita_lean_df))
+names(vita_lean_df) <- gsub("thriv_6", "vita_1", names(vita_lean_df))
+names(vita_lean_df) <- gsub("thriv_7", "vita_2", names(vita_lean_df))
+names(vita_lean_df) <- gsub("thriv_8", "vita_3", names(vita_lean_df))
+names(vita_lean_df) <- gsub("thriv_9", "vita_4", names(vita_lean_df))
+
+
+```
+
+
+```{r demo_recode_1, include = F}
+## Demos dataframe
+
+## time since business foundation 
+library(zoo)
+library(lubridate)
+df_demo_india$t1timebuiss <- as.yearmon(paste(df_demo_india$t1date_7, df_demo_india$t1date_8), "%Y %m")
+df_demo_india$t1timebuiss <- as_date(df_demo_india$t1timebuiss)
+df_demo_india$start_t1 <- as.Date("2019-11-15")
+
+df_demo_india$t1timebuiss <- difftime(df_demo_india$start_t1, df_demo_india$t1timebuiss, UTC,
+         units = c("days"))
+
+df_demo_india$t1timebuiss[ df_demo_india$t1timebuiss > 18250 ] <- NA
+df_demo_india$t1timebuiss[ df_demo_india$t1timebuiss < 0 ] <- NA
+df_demo_india <- df_demo_india %>% dplyr::select(-matches("t1date"))
+
+
+## recode occupational function
+df_demo_india$t1func[df_demo_india$t1func_5_text == "president/CEO"] = 1
+df_demo_india$t1func[df_demo_india$t1func_5_text == "Finance director"] = 1
+df_demo_india$t1func[df_demo_india$t1func_5_text == "CFO"] = 1
+df_demo_india$t1func[df_demo_india$t1func_5_text == "Creative Director"] = 2
+df_demo_india <- df_demo_india %>% dplyr::select(-matches("t1func_5_text"))
+
+## recode industry
+df_demo_india$t1indu[df_demo_india$t1indu_7_text == "HR"] = 2
+
+df_demo_india$t1indu[df_demo_india$t1indu_7_text == "Personal Services"] = 3
+df_demo_india$t1indu[df_demo_india$t1indu_7_text == "governance"] = 3
+df_demo_india$t1indu[df_demo_india$t1indu_7_text == "Dog walking"] = 3
+df_demo_india$t1indu[df_demo_india$t1indu_7_text == "Self-Improvement"] = 3
+df_demo_india$t1indu[df_demo_india$t1indu_7_text == "Event planning"] = 3
+df_demo_india$t1indu[df_demo_india$t1indu_7_text == "Hospitality, guest house"] = 3
+df_demo_india$t1indu[df_demo_india$t1indu_7_text == "Services"] = 3
+df_demo_india$t1indu[df_demo_india$t1indu_7_text == "Pet Services"] = 3
+df_demo_india$t1indu[df_demo_india$t1indu_7_text == "Consultancy"] = 3
+df_demo_india$t1indu[df_demo_india$t1indu_7_text == "Beauty"] = 3
+
+df_demo_india$t1indu[df_demo_india$t1indu_7_text == "Service customising retail goods"] = 4
+df_demo_india$t1indu[df_demo_india$t1indu_7_text == "Retail"] = 4
+
+df_demo_india$t1indu[df_demo_india$t1indu_7_text == "transport"] = 5
+
+# new category = 8 (Arts, Fashion & Entertainment)
+df_demo_india$t1indu[df_demo_india$t1indu_7_text == "Entertainment/Music"] = 8
+df_demo_india$t1indu[df_demo_india$t1indu_7_text == "entertainment"] = 8
+df_demo_india$t1indu[df_demo_india$t1indu_7_text == "Arts"] = 8
+df_demo_india$t1indu[df_demo_india$t1indu_7_text == "Entertainment"] = 8
+df_demo_india$t1indu[df_demo_india$t1indu_7_text == "Media"] = 8
+df_demo_india$t1indu[df_demo_india$t1indu_7_text == "FASHION"] = 8
+df_demo_india$t1indu[df_demo_india$t1indu_7_text == "art"] = 8
+df_demo_india$t1indu[df_demo_india$t1indu_7_text == "Creative"] = 8
+df_demo_india$t1indu[df_demo_india$t1indu_7_text == "Arts"] = 8
+df_demo_india$t1indu[df_demo_india$t1indu_7_text == "Creative Arts"] = 8
+df_demo_india$t1indu[df_demo_india$t1indu_7_text == "Art"] = 8
+df_demo_india$t1indu[df_demo_india$t1indu_7_text == "Art & Entertainment"] = 8
+df_demo_india$t1indu[df_demo_india$t1indu_7_text == "Design"] = 8
+
+df_demo_india <- df_demo_india %>% dplyr::select(-matches("t1indu_7_text"))
+
+## remove language text 
+df_demo_india <- df_demo_india %>% dplyr::select(-matches("t1lang_4_text"))
+
+## recode education 
+df_demo_india$t1edu[df_demo_india$t1edu_6_text == "Masters Degree"] = 4
+df_demo_india$t1edu[df_demo_india$t1edu_6_text == "Masters degree"] = 4
+df_demo_india$t1edu[df_demo_india$t1edu_6_text == "post grad diploma"] = 4
+df_demo_india$t1edu[df_demo_india$t1edu_6_text == "Some upper secondary school"] = 2
+df_demo_india$t1edu[df_demo_india$t1edu_6_text == "MA"] = 4
+df_demo_india$t1edu[df_demo_india$t1edu_6_text == "A Levels"] = 2
+df_demo_india$t1edu[df_demo_india$t1edu_6_text == "Master's Degree"] = 4
+df_demo_india$t1edu[df_demo_india$t1edu_6_text == "masters degree"] = 4
+df_demo_india$t1edu[df_demo_india$t1edu_6_text == "University Diploma"] = 4
+df_demo_india$t1edu[df_demo_india$t1edu_6_text == "Masters degree"] = 4
+df_demo_india$t1edu[df_demo_india$t1edu_6_text == "Technical College"] = 4
+
+df_demo_india <- df_demo_india %>% dplyr::select(-matches("t1edu_6_text"))
+
+## recode country 
+# 1 = USA
+# 2 = UK
+# 3 = Canada 
+# 4 = Italy
+# 5 = Hungary
+# 6 = Poland
+# 7 = Mexico
+# 8 = Portugal
+# 9 = Austria
+# 10 = Germany
+# 11 = Slovenia
+# 12 = Netherlands
+# 13 = Sweden
+# 14 = Czech Republic
+# 15 = Malta
+# 16 = Greece
+# 17 = France
+# 18 = Spain
+# 19 = Israel
+# 20 = Estonia
+# 21 = Brazil 
+# 22 = Benin
+# 23 = Australia
+# 24 = Latvia
+# 25 = Korea
+# 26 = Norway
+# 27 = New Zealand
+# 28 = United Arab Emirates
+
+df_demo_india$t1count[df_demo_india$t1count == 187] = "USA"
+df_demo_india$t1count[df_demo_india$t1count == 185] = "UK"
+df_demo_india$t1count[df_demo_india$t1count == 31] = "Canada"
+df_demo_india$t1count[df_demo_india$t1count == 84] = "Italy"
+df_demo_india$t1count[df_demo_india$t1count == 76] = "Hungary"
+df_demo_india$t1count[df_demo_india$t1count == 137] = "Poland"
+df_demo_india$t1count[df_demo_india$t1count == 111] = "O_Mexico"
+df_demo_india$t1count[df_demo_india$t1count == 138] = "Portugal"
+df_demo_india$t1count[df_demo_india$t1count == 10] = "Austria"
+df_demo_india$t1count[df_demo_india$t1count == 65] = "Germany"
+df_demo_india$t1count[df_demo_india$t1count == 158] = "Slovenia"
+df_demo_india$t1count[df_demo_india$t1count == 122] = "Netherlands"
+df_demo_india$t1count[df_demo_india$t1count == 168] = "Sweden"
+df_demo_india$t1count[df_demo_india$t1count == 45] = "Czech Republic"
+df_demo_india$t1count[df_demo_india$t1count == 107] = "Malta"
+df_demo_india$t1count[df_demo_india$t1count == 67] = "Greece"
+df_demo_india$t1count[df_demo_india$t1count == 61] = "France"
+df_demo_india$t1count[df_demo_india$t1count == 163] = "Spain"
+df_demo_india$t1count[df_demo_india$t1count == 83] = "Israel"
+df_demo_india$t1count[df_demo_india$t1count == 57] = "Estonia"
+df_demo_india$t1count[df_demo_india$t1count == 24] = "O_Brazil"
+df_demo_india$t1count[df_demo_india$t1count == 19] = "O_Benin"
+df_demo_india$t1count[df_demo_india$t1count == 9] = "Australia"
+df_demo_india$t1count[df_demo_india$t1count == 94] = "Latvia"
+df_demo_india$t1count[df_demo_india$t1count == 140] = "O_Korea"
+df_demo_india$t1count[df_demo_india$t1count == 128] = "Norway"
+df_demo_india$t1count[df_demo_india$t1count == 123] = "New Zealand"
+df_demo_india$t1count[df_demo_india$t1count == 184] = "O_United Arab Emirates"
+df_demo_india$t1count[df_demo_india$t1count == 78] = "India"
+df_demo_india$t1count[df_demo_india$t1count == 5] = "O_Angola"
+
+
+library(plotly)
+table(df_demo_india$t1count, useNA="always")
+
+## remove source money text 
+df_demo_india <- df_demo_india %>% dplyr::select(-matches("t2capit_8_text"))
+
+## remove lang_text 
+df_demo_india <- df_demo_india %>% dplyr::select(-matches("t1lang_3_text"))
+
+## make timebuiss numeric 
+df_demo_india$t1timebuiss <- as.numeric(df_demo_india$t1timebuiss)
+
+## recode occupation past 
+# new category: Student = 7
+df_demo_india$t1octypp[df_demo_india$t1octypp_6_text == "Student"] = 7
+df_demo_india$t1octypp[df_demo_india$t1octypp_6_text == "student"] = 7
+df_demo_india <- df_demo_india %>% dplyr::select(-matches("t1octypp_6_text"))
+
+## remove start_t1
+df_demo_india <- df_demo_india %>% dplyr::select(-matches("start_t1"))
+
+## remove found (only 1!) 
+df_demo_india <- df_demo_india %>% dplyr::select(-matches("t1found"))
+
+## demo numeric
+df_demo_india_num <- df_demo_india %>% dplyr::select(-matches("t1prod|t1id"))
+
+df_scales_india <- data.frame(cbind(df_demo_india_num, df_scales_india))
+
+```
+
+
+```{r corr, include = F}
+
+df_scales_india$t1accriwd_1 <- df_scales_india$t1accri_1
+df_scales_india$t1accriwd_2 <- df_scales_india$t1accri_4
+df_scales_india$t1accriwd_3 <- df_scales_india$t1accri_6
+
+
+df_demo_num_india <- df_scales_india %>% dplyr::select(matches("t.duration|t1octyp|t1octyp.|t1expt_7|t1senr|t1found|t1date_7|t1date_8|t1inno|t1owner|t1coown|t1coownn_4|t1perown_1|t1func|t1mbus|t1mbusn_1|t1indu|t1opnec|t1count|t1age_4|t1sex|t1lang|t1edu|t1child|t1chin|t2emp|t2empn_1|t2act.|t2sumcap|t2capit|t2how_.|t2hod_.|t4_fundr|t4_fundr.|t1brex|t1timebuiss|t4fundr2|err")) %>% remove_all_labels(.)
+
+df_scales_new_india <- df_scales_india %>% dplyr::select(-matches("t1id|thriv_|t.duration|t1octyp|t1octyp.|t1expt_7|t1senr|t1found|t1date_7|t1date_8|t1inno|t1owner|t1coown|t1coownn_4|t1perown_1|t1func|t1mbus|t1mbusn_1|t1indu|t1prod|t1opnec|t1count|t1age_4|t1sex|t1lang|t1edu|t1child|t4fundr|t1chin|t2emp|t2empn_1|t2act.|t2sumcap|t2capit|t2how_.|t2hod_.|t4_fundr.|t1brex|t1timebuiss|t4fundr2|err|Err|envdyn|corona", ignore.case = F))
+comp_split_india <- df_scales_new_india %>% remove_all_labels(.) %>%
+  split.default(sub("_.", "", names(df_scales_new_india))) 
+
+comp_india <- purrr::map(comp_split_india, ~ multicon::composite(.x, nomiss = 0.8), data = .x)
+alph_india <- purrr::map(comp_split_india, ~ psych::alpha(.x), data = .x) %>%
+  purrr::map(~ .x$total)
+
+comp_df_india <- do.call("cbind", comp_india) %>% cbind(., df_demo_num_india) %>% remove_all_labels(.)
+alph_df_india <- do.call("rbind", alph_india) %>% round(., 2)
+write_sav(comp_df_india, "comp_df_india.sav")
+
+
+```
+# Prolific
+
+## Match IDs from T2 for first data set
+
+```{r}
+IP_ID <- data_T2_1 %>% select(matches("IPAddress|PROLIFIC_PID"))
+data_T1_1 <- left_join(data_T1_1, IP_ID, by="IPAddress") 
+```
+
+
+## Recode first prolific data set
+
+```{r recode_wrong, include = F}
+library(sjlabelled)
+data_T1_1 <- data_T1_1 %>% remove_all_labels(.) %>%
+  mutate_at(vars(matches("T1octypp")), funs(dplyr::recode(.,`1` = 1, `2` = 2, `4`=3, `5`=4, `6` = 5, .default = NULL))) %>%
+  mutate_at(vars(matches("T1brex")), funs(dplyr::recode(., `23`=1, `24`=2, `25` = 3,`26` = 4,`27` = 5, .default = NULL))) %>%
+  mutate_at(vars(matches("T1errund")), funs(dplyr::recode(., `6`=2, `2` = 3,`7` = 4,`8` = 5, .default = NULL))) %>%
+  mutate_at(vars(matches("T1chal")), funs(dplyr::recode(.,`14`=1, `15`=2, `16` = 3,`17` = 4,`18` = 5, `19`=6, `20`=7, .default = NULL))) %>%
+  mutate_at(vars(matches("T1threat")), funs(dplyr::recode(.,`14`=1, `15`=2, `16` = 3,`17` = 4,`18` = 5, `19`=6, `20`=7, .default = NULL))) %>%
+  mutate_at(vars(matches("T1hindr")), funs(dplyr::recode(.,`14`=1, `15`=2, `16` = 3,`17` = 4,`18` = 5, `19`=6, `20`=7, .default = NULL))) %>%
+  mutate_at(vars(matches("T1accri")), funs(dplyr::recode(.,`13`=1, `14`=2, `15` = 3,`16` = 4,`17` = 5, `18`=6, `19`=7, .default = NULL))) %>%
+  mutate_at(vars(matches("T1exploi")), funs(dplyr::recode(.,`1`=1, `25`=2, `26` = 3,`27` = 4,`28` = 5, `30`=6, `31`=7, .default = NULL))) %>%
+  mutate_at(vars(matches("T1explor")), funs(dplyr::recode(.,`1`=1, `24`=2, `25` = 3,`26` = 4,`27` = 5, `28`=6, `29`=7, .default = NULL))) %>%
+  mutate_at(vars(matches("T1BIS")), funs(dplyr::recode(.,`22`=1, `23`=2, `24` = 3,`25` = 4,`26` = 5, `27`=6, `28`=7, .default = NULL))) %>%
+  mutate_at(vars(matches("T1BAS1")), funs(dplyr::recode(.,`22`=1, `23`=2, `24` = 3,`25` = 4,`26` = 5, `27`=6, `28`=7, .default = NULL))) %>%
+  mutate_at(vars(matches("T1BAS2")), funs(dplyr::recode(.,`22`=1, `23`=2, `24` = 3,`25` = 4,`26` = 5, `27`=6, `28`=7, .default = NULL)))  %>%
+  mutate_at(vars(matches("T1sex")), funs(dplyr::recode(.,`1`=1, `2`=2, `4` = 3, .default = NULL))) %>%
+  mutate_at(vars(matches("T1lang")), funs(dplyr::recode(.,`1`=1, `2`=2, `4` = 3, .default = NULL))) %>%
+  mutate_at(vars(matches("T1chin")), funs(dplyr::recode(.,`1`=1, `2`=2, `3`=3,`4` = 4,`6` = 5, .default = NULL))) %>% 
+  mutate_at(vars(matches("t1errsel")), funs(dplyr::recode(.,`13` = 1, `14` = 2, `15`=3, `16`=4, `18` = 5, `20` = 6, `22` = 7, `23` = 8, `24` = 9, .default = NULL)))
+
+## delete duplicate bas item
+data_T1_1 <- data_T1_1 %>% dplyr::select(-matches("T1BAS2_1"))
+data_T1_1 <- data_T1_1 %>% dplyr::rename(T1BAS2_1 = T1BAS2_2,
+                                  T1BAS2_2 = T1BAS2_3,
+                                  T1BAS2_3 = T1BAS2_4,
+                                  T1BAS2_4 = T1BAS2_5,
+                                  T1BAS2_5 = T1BAS2_6, 
+                                  T1BAS2_6 = T1BAS2_7) 
+
+## rename error items
+names(data_T1_1)
+data_T1_1 <- data_T1_1 %>% dplyr::rename(T1error_1 = T1error_13,
+                                  T1error_2 = T1error_14,
+                                  T1error_3 = T1error_15,
+                                  T1error_4 = T1error_16,
+                                  T1error_5 = T1error_18, 
+                                  T1error_6 = T1error_20,
+                                  T1error_7 = T1error_22,
+                                  T1error_8 = T1error_23,
+                                  T1error_9 = T1error_24,
+                                  ) 
+data_T1_1 <- data_T1_1 %>% dplyr::select(-matches("T1error_47|T1error_48|T1error_49|T1error_50|T1error_51"))
+data_T1_1 <- data_T1_1 %>% dplyr::rename(T1error_1_TEXT = T1error_13_TEXT,
+                                  T1error_2_TEXT = T1error_14_TEXT,
+                                  T1error_3_TEXT = T1error_15_TEXT,
+                                  T1error_4_TEXT = T1error_16_TEXT,
+                                  T1error_5_TEXT = T1error_18_TEXT, 
+                                  T1error_6_TEXT = T1error_20_TEXT,
+                                  T1error_7_TEXT = T1error_22_TEXT,
+                                  T1error_8_TEXT = T1error_23_TEXT,
+                                  T1error_9_TEXT = T1error_24_TEXT,
+                                  ) 
+
+
+data_T1_1 <- data_T1_1 %>% dplyr::select(-matches("T1errser_10|T1errser_11|T1errser_12|T1errser_13|T1errser_14"))
+
+data_T1_1 <- data_T1_1 %>% dplyr::rename(T1errsel_1_TEXT = T1errsel_13_TEXT,
+                                  T1errsel_2_TEXT = T1errsel_14_TEXT,
+                                  T1errsel_3_TEXT = T1errsel_15_TEXT,
+                                  T1errsel_4_TEXT = T1errsel_16_TEXT,
+                                  T1errsel_5_TEXT = T1errsel_18_TEXT, 
+                                  T1errsel_6_TEXT = T1errsel_20_TEXT,
+                                  T1errsel_7_TEXT = T1errsel_22_TEXT,
+                                  T1errsel_8_TEXT = T1errsel_23_TEXT,
+                                  T1errsel_9_TEXT = T1errsel_24_TEXT,
+                                  ) 
+
+data_T1_1 <- data_T1_1 %>% dplyr::select(-matches("T1errper_10|T1errper_11|T1errper_12|T1errper_13|T1errper_14"))
+data_T1_1 <- data_T1_1 %>% dplyr::select(-matches("T1errpre_10|T1errpre_11|T1errpre_12|T1errpre_13|T1errpre_14"))
+
+```
+
+## Summary overviews
+
+```{r}
+summary(data_T1_1)
+summary(data_T1_2)
+summary(data_T1_3)
+
+```
+
+
+## Join data frames
+
+```{r}
+data_T1_1$source <- rep(1, nrow(data_T1_1))
+data_T1_2$source <- rep(2, nrow(data_T1_2))
+data_T1_3$source <- rep(3, nrow(data_T1_3))
+
+names(data_T1_1) <- tolower(names(data_T1_1))
+names(data_T1_2) <- tolower(names(data_T1_2))
+names(data_T1_3) <- tolower(names(data_T1_3))
+# accriwd
+data_T1_1$t1accriwd_1 <- data_T1_1$t1accri_1
+data_T1_1$t1accriwd_2 <- data_T1_1$t1accri_4
+data_T1_1$t1accriwd_3 <- data_T1_1$t1accri_6
+
+# accriwd second data set
+data_T1_2$t1accriwd_1 <- data_T1_2$t1accri_1
+data_T1_2$t1accriwd_2 <- data_T1_2$t1accri_4
+data_T1_2$t1accriwd_3 <- data_T1_2$t1accri_6
+
+# add preselection info for second data frame
+names(data_Presel) <- tolower(names(data_Presel))
+data_T1_2 <- left_join(data_T1_2, data_Presel, by = "prolific_pid") 
+
+# bind data frames
+data_T1 <- rbind.fill(data_T1_1, data_T1_2, data_T1_3)
+
+# delete tests
+data_T1 <- data_T1[- grep("TEST", data_T1$t1id),]
+
+# delete previews
+data_T1 = data_T1[!(data_T1$status == 1),]
+
+# delete no consent
+data_T1 = data_T1[!(data_T1$consent == 2),]
+
+# delete empty data (not participated)
+data_T1 = data_T1[!is.na(data_T1$t1octyp),]
+
+# delete duplicate ip addresses
+data_T1 = data_T1[!duplicated(data_T1$ipaddress),]
+
+# delete duplicate ids
+data_T1 = data_T1[!duplicated(data_T1$t1id, incomparables=NA),]
+
+
+# determine no errors
+no_error <- data_T1[is.na(data_T1$t1errsel),]
+nrow(no_error)/nrow(data_T1)
+
+# delete no errors
+data_T1 <- data_T1[!is.na(data_T1$t1errsel),]
+
+data_T1$Errdescr <- mapply("[", asplit(data_T1[56:64], 1), data_T1$t1errsel)
+data_T1$Errdescr
+
+names(data_T1)
+
+## make NA list for no errors
+
+no_errors_vec <- c("I can think of any error made.", "Sometimes", "I do not remember", "Nil", "No errors to report","It is non existent at present", "Nothing", "None", "n/a", "No errors", "none that I am aware of", "I haven't made any errors", "Hardware failure")
+
+data_T1 <- data_T1[!data_T1$Errdescr %in% no_errors_vec,]
+
+```
+
+## Attention check
+
+### T1_1
+
+```{r rename_att, include = F}
+names(data_T1) <- tolower(names(data_T1))
+
+data_T1_1 <- data_T1 %>% filter(source == 1)
+data_T1_2 <- data_T1 %>% filter(source == 2)
+data_T1_3 <- data_T1 %>% filter(source == 3)
+
+# attention check items 
+library(dplyr)
+df_rename_att <- data_T1_1 %>%
+  dplyr::rename(
+    att_1_t1 = t1chal_2,
+    att_2_t1 = t1accri_4)
+
+## create attention fails df 
+att_1_t1 <- df_rename_att[df_rename_att$att_1_t1 %in% c(1, 2, 3,4,6,7), ]
+att_2_t1 <- df_rename_att[df_rename_att$att_2_t1 %in% c(1, 3, 4, 5, 6,7), ]
+
+
+attention_fail <- rbind(att_1_t1, att_2_t1) %>%
+  as_tibble(.)
+
+ID_vals <- data.frame(table(attention_fail$responseid))
+Rows_fails <- attention_fail$responseid %in% ID_vals[ID_vals$Freq > 0,1]
+Att_fails <- attention_fail[Rows_fails,]
+
+## Number of fails
+(data.frame(table(Att_fails$responseid)))
+
+## exclude attention fails (two or more fails)
+df_att <- df_rename_att[!(df_rename_att$responseid %in% Att_fails$responseid),]
+
+# create attention check variable
+att_check = df_rename_att %>% dplyr::select(att_1_t1,att_2_t1)
+
+data_T1_1 <- df_att %>% dplyr::select(-matches("att_._t."))
+
+## rename items after attention check
+data_T1_1 <- data_T1_1 %>% dplyr::rename(
+  t1chal_2 = t1chal_3,
+  t1chal_3 = t1chal_4,
+  t1accri_4 = t1accri_5,
+  t1accri_5 = t1accri_6,
+  t1accri_6 = t1accri_7
+)
+
+att_fails <- nrow(Att_fails)
+
+```
+
+### T1_2
+
+```{r rename_att, include = F}
+# attention check items 
+library(dplyr)
+df_rename_att <- data_T1_2 %>%
+  dplyr::rename(
+    att_1_t1 = t1chal_2,
+    att_2_t1 = t1accri_4,
+    att_3_t1 = t1thriv_7,)
+
+## create attention fails df 
+att_1_t1 <- df_rename_att[df_rename_att$att_1_t1 %in% c(1, 2, 3,4,6,7), ]
+att_2_t1 <- df_rename_att[df_rename_att$att_2_t1 %in% c(1, 3, 4, 5, 6,7), ]
+att_3_t1 <- df_rename_att[df_rename_att$att_3_t1 %in% c(1, 2, 3, 4, 5,7), ]
+
+
+attention_fail <- rbind(att_1_t1, att_2_t1, att_3_t1) %>%
+  as_tibble(.)
+
+ID_vals <- data.frame(table(attention_fail$responseid))
+Rows_fails <- attention_fail$responseid %in% ID_vals[ID_vals$Freq > 0,1]
+Att_fails <- attention_fail[Rows_fails,]
+
+## Number of fails
+(data.frame(table(Att_fails$responseid)))
+
+## exclude attention fails (two or more fails)
+df_att <- df_rename_att[!(df_rename_att$responseid %in% Att_fails$responseid),]
+
+# create attention check variable
+att_check = df_rename_att %>% dplyr::select(att_1_t1,att_2_t1)
+
+data_T1_2 <- df_att %>% dplyr::select(-matches("att_._t."))
+
+## rename items after attention check
+data_T1_2 <- data_T1_2 %>% dplyr::rename(
+  t1chal_2 = t1chal_3,
+  t1chal_3 = t1chal_4,
+  t1accri_4 = t1accri_5,
+  t1accri_5 = t1accri_6,
+  t1accri_6 = t1accri_7,
+  t1thriv_7 = t1thriv_8,
+  t1thriv_8 = t1thriv_9,
+  t1thriv_9 = t1thriv_10,
+  t1thriv_10 = t1thriv_11
+)
+
+att_fails <- nrow(Att_fails) + att_fails
+
+```
+
+### T1_3
+
+```{r rename_att, include = F}
+# attention check items 
+library(dplyr)
+names(data_T1_3)
+df_rename_att <- data_T1_3 %>%
+  dplyr::rename(
+    att_1_t1 = t1chal_2,
+    att_2_t1 = t1accriwd_2)
+
+## create attention fails df 
+att_1_t1 <- df_rename_att[df_rename_att$att_1_t1 %in% c(1, 2, 3,4,6,7), ]
+att_2_t1 <- df_rename_att[df_rename_att$att_2_t1 %in% c(1, 3, 4, 5, 6,7), ]
+
+
+attention_fail <- rbind(att_1_t1, att_2_t1) %>%
+  as_tibble(.)
+
+ID_vals <- data.frame(table(attention_fail$responseid))
+Rows_fails <- attention_fail$responseid %in% ID_vals[ID_vals$Freq > 0,1]
+Att_fails <- attention_fail[Rows_fails,]
+
+## Number of fails
+(data.frame(table(Att_fails$responseid)))
+
+## exclude attention fails (two or more fails)
+df_att <- df_rename_att[!(df_rename_att$responseid %in% Att_fails$responseid),]
+
+# create attention check variable
+att_check = df_rename_att %>% dplyr::select(att_1_t1,att_2_t1)
+
+data_T1_3 <- df_att %>% dplyr::select(-matches("att_._t."))
+
+## rename items after attention check
+data_T1_3 <- data_T1_3 %>% dplyr::rename(
+  t1chal_2 = t1chal_3,
+  t1chal_3 = t1chal_4,
+  t1accriwd_2 = t1accriwd_3,
+  t1accriwd_3 = t1accriwd_4
+)
+
+att_fails <- nrow(Att_fails) + att_fails
+
+```
+
+## Join data frames
+
+```{r}
+data_T1 <- rbind.fill(data_T1_1, data_T1_2, data_T1_3)
+data_T1_12 <- rbind.fill(data_T1_1, data_T1_2)
+```
+
+
+## Rename
+
+```{r rename_1, include = F}
+names(data_T1) <- gsub("bas1_1", "basre_1", names(data_T1))
+names(data_T1) <- gsub("bas1_2", "basre_2", names(data_T1))
+names(data_T1) <- gsub("bas1_3", "basre_3", names(data_T1))
+names(data_T1) <- gsub("bas1_4", "basre_4", names(data_T1))
+names(data_T1) <- gsub("bas1_5", "basre_5", names(data_T1))
+names(data_T1) <- gsub("bas1_6", "basdr_1", names(data_T1))
+names(data_T1) <- gsub("bas1_7", "basdr_2", names(data_T1))
+names(data_T1) <- gsub("bas2_1", "basdr_3", names(data_T1))
+names(data_T1) <- gsub("bas2_2", "basdr_4", names(data_T1))
+names(data_T1) <- gsub("bas2_3", "basfu_1", names(data_T1))
+names(data_T1) <- gsub("bas2_4", "basfu_2", names(data_T1))
+names(data_T1) <- gsub("bas2_5", "basfu_3", names(data_T1))
+names(data_T1) <- gsub("bas2_6", "basfu_4", names(data_T1))
+
+vita_lean_df <- data_T1 %>% dplyr::select(matches("thriv"))
+names(vita_lean_df) <- gsub("thriv_10", "vita_5", names(vita_lean_df))
+names(vita_lean_df) <- gsub("thriv_1", "learn_1", names(vita_lean_df))
+names(vita_lean_df) <- gsub("thriv_2", "learn_2", names(vita_lean_df))
+names(vita_lean_df) <- gsub("thriv_3", "learn_3", names(vita_lean_df))
+names(vita_lean_df) <- gsub("thriv_4", "learn_4", names(vita_lean_df))
+names(vita_lean_df) <- gsub("thriv_5", "learn_5", names(vita_lean_df))
+names(vita_lean_df) <- gsub("thriv_6", "vita_1", names(vita_lean_df))
+names(vita_lean_df) <- gsub("thriv_7", "vita_2", names(vita_lean_df))
+names(vita_lean_df) <- gsub("thriv_8", "vita_3", names(vita_lean_df))
+names(vita_lean_df) <- gsub("thriv_9", "vita_4", names(vita_lean_df))
+
+data_T1 <- cbind(data_T1, vita_lean_df)
+
+names(data_T1) <- gsub("t4_fundr", "t4fundr", names(data_T1))
+names(data_T1) <- gsub("t4_fundr2", "t4fundr2", names(data_T1))
+
+```
+
+## Recode
+
+```{r}
+data_T1 <-
+data_T1 %>%
+mutate_at(vars(c("t1accri_2", "t1bis_4", "t1bis_6", "t1thriv_4","t1thriv_10")),
+            ~ (8 - .))
+
+data_T1 <-
+data_T1 %>%
+mutate_at(vars(c("t1gopro_2", "t1gopro_4")),
+            ~ (6 - .))
+
+
+```
+
+```{r demo_recode, include = F}
+## Demos dataframe
+
+## time since business foundation 
+library(zoo)
+library(lubridate)
+data_T1$t1timebuiss <- as.yearmon(paste(data_T1$t1date_7, data_T1$t1date_8), "%Y %m")
+
+data_T1$year <- as.numeric(names(attr(data_T1$t1date_1_1,"labels")[match(data_T1$t1date_1_1,attr(data_T1$t1date_1_1,"labels"))]))
+data_T1$month <- (names(attr(data_T1$t1date_2_1,"labels")[match(data_T1$t1date_2_1,attr(data_T1$t1date_2_1,"labels"))]))
+data_T1$t1timebuiss_2 <- as.yearmon(paste(data_T1$year, data_T1$month), "%Y %b")
+data_T1$t1timebuiss_2 <- as.numeric(difftime(data_T1$startdate, data_T1$t1timebuiss_2, UTC,
+         units = c("days")))
+
+
+data_T1$t1timebuiss <- as_date(data_T1$t1timebuiss)
+
+data_T1$t1timebuiss <- difftime(data_T1$startdate, data_T1$t1timebuiss, UTC,
+         units = c("days"))
+
+data_T1$t1timebuiss <- ifelse(is.na(data_T1$t1timebuiss), data_T1$t1timebuiss_2, data_T1$t1timebuiss)
+
+data_T1$t1timebuiss[ data_T1$t1timebuiss > 18250 ] <- NA
+data_T1 <- data_T1 %>% dplyr::select(-matches("t1date|t1timebuiss_2"))
+
+## innovativeness 
+data_T1$t1innosum <- data_T1 %>% dplyr::select(matches("inno")) %>%
+   mutate(t1innosum = rowSums(subset(., select = c(t1inno_1:t1inno_4)), na.rm = T)) %>% dplyr::select(matches("t1innosum")) %>% .[["t1innosum"]]
+
+data_T1 <- data_T1 %>% dplyr::select(-matches("t1inno_"))
+
+## recode occupational function
+data_T1$t1func[data_T1$t1func_5_text == "president/CEO"] = 1
+data_T1$t1func[data_T1$t1func_5_text == "Finance director"] = 1
+data_T1$t1func[data_T1$t1func_5_text == "CFO"] = 1
+data_T1$t1func[data_T1$t1func_5_text == "Creative Director"] = 2
+data_T1 <- data_T1 %>% dplyr::select(-matches("t1func_5_text"))
+
+## recode industry
+data_T1$t1indu[data_T1$t1indu_7_text == "HR"] = 2
+
+data_T1$t1indu[data_T1$t1indu_7_text == "Personal Services"] = 3
+data_T1$t1indu[data_T1$t1indu_7_text == "governance"] = 3
+data_T1$t1indu[data_T1$t1indu_7_text == "Dog walking"] = 3
+data_T1$t1indu[data_T1$t1indu_7_text == "Self-Improvement"] = 3
+data_T1$t1indu[data_T1$t1indu_7_text == "Event planning"] = 3
+data_T1$t1indu[data_T1$t1indu_7_text == "Hospitality, guest house"] = 3
+data_T1$t1indu[data_T1$t1indu_7_text == "Services"] = 3
+data_T1$t1indu[data_T1$t1indu_7_text == "Pet Services"] = 3
+data_T1$t1indu[data_T1$t1indu_7_text == "Consultancy"] = 3
+data_T1$t1indu[data_T1$t1indu_7_text == "Beauty"] = 3
+
+data_T1$t1indu[data_T1$t1indu_7_text == "Service customising retail goods"] = 4
+data_T1$t1indu[data_T1$t1indu_7_text == "Retail"] = 4
+
+data_T1$t1indu[data_T1$t1indu_7_text == "transport"] = 5
+
+# new category = 8 (Arts, Fashion & Entertainment)
+data_T1$t1indu[data_T1$t1indu_7_text == "Entertainment/Music"] = 8
+data_T1$t1indu[data_T1$t1indu_7_text == "entertainment"] = 8
+data_T1$t1indu[data_T1$t1indu_7_text == "Arts"] = 8
+data_T1$t1indu[data_T1$t1indu_7_text == "Entertainment"] = 8
+data_T1$t1indu[data_T1$t1indu_7_text == "Media"] = 8
+data_T1$t1indu[data_T1$t1indu_7_text == "FASHION"] = 8
+data_T1$t1indu[data_T1$t1indu_7_text == "art"] = 8
+data_T1$t1indu[data_T1$t1indu_7_text == "Creative"] = 8
+data_T1$t1indu[data_T1$t1indu_7_text == "Arts"] = 8
+data_T1$t1indu[data_T1$t1indu_7_text == "Creative Arts"] = 8
+data_T1$t1indu[data_T1$t1indu_7_text == "Art"] = 8
+data_T1$t1indu[data_T1$t1indu_7_text == "Art & Entertainment"] = 8
+data_T1$t1indu[data_T1$t1indu_7_text == "Design"] = 8
+
+data_T1 <- data_T1 %>% dplyr::select(-matches("t1indu_7_text"))
+
+## remove language text 
+data_T1 <- data_T1 %>% dplyr::select(-matches("t1lang_4_text"))
+
+## recode education 
+data_T1$t1edu[data_T1$t1edu_6_text == "Masters Degree"] = 4
+data_T1$t1edu[data_T1$t1edu_6_text == "Masters degree"] = 4
+data_T1$t1edu[data_T1$t1edu_6_text == "post grad diploma"] = 4
+data_T1$t1edu[data_T1$t1edu_6_text == "Some upper secondary school"] = 2
+data_T1$t1edu[data_T1$t1edu_6_text == "MA"] = 4
+data_T1$t1edu[data_T1$t1edu_6_text == "A Levels"] = 2
+data_T1$t1edu[data_T1$t1edu_6_text == "Master's Degree"] = 4
+data_T1$t1edu[data_T1$t1edu_6_text == "masters degree"] = 4
+data_T1$t1edu[data_T1$t1edu_6_text == "University Diploma"] = 4
+data_T1$t1edu[data_T1$t1edu_6_text == "Masters degree"] = 4
+data_T1$t1edu[data_T1$t1edu_6_text == "Technical College"] = 4
+
+data_T1 <- data_T1 %>% dplyr::select(-matches("t1edu_6_text"))
+
+## recode country 
+# 1 = USA
+# 2 = UK
+# 3 = Canada 
+# 4 = Italy
+# 5 = Hungary
+# 6 = Poland
+# 7 = Mexico
+# 8 = Portugal
+# 9 = Austria
+# 10 = Germany
+# 11 = Slovenia
+# 12 = Netherlands
+# 13 = Sweden
+# 14 = Czech Republic
+# 15 = Malta
+# 16 = Greece
+# 17 = France
+# 18 = Spain
+# 19 = Israel
+# 20 = Estonia
+# 21 = Brazil 
+# 22 = Benin
+# 23 = Australia
+# 24 = Latvia
+# 25 = Korea
+# 26 = Norway
+# 27 = New Zealand
+# 28 = United Arab Emirates
+
+data_T1$t1count[data_T1$t1count == 187] = "USA"
+data_T1$t1count[data_T1$t1count == 185] = "UK"
+data_T1$t1count[data_T1$t1count == 31] = "Canada"
+data_T1$t1count[data_T1$t1count == 84] = "Italy"
+data_T1$t1count[data_T1$t1count == 76] = "Hungary"
+data_T1$t1count[data_T1$t1count == 137] = "Poland"
+data_T1$t1count[data_T1$t1count == 111] = "O_Mexico"
+data_T1$t1count[data_T1$t1count == 138] = "Portugal"
+data_T1$t1count[data_T1$t1count == 10] = "Austria"
+data_T1$t1count[data_T1$t1count == 65] = "Germany"
+data_T1$t1count[data_T1$t1count == 158] = "Slovenia"
+data_T1$t1count[data_T1$t1count == 122] = "Netherlands"
+data_T1$t1count[data_T1$t1count == 168] = "Sweden"
+data_T1$t1count[data_T1$t1count == 45] = "Czech Republic"
+data_T1$t1count[data_T1$t1count == 107] = "Malta"
+data_T1$t1count[data_T1$t1count == 67] = "Greece"
+data_T1$t1count[data_T1$t1count == 61] = "France"
+data_T1$t1count[data_T1$t1count == 163] = "Spain"
+data_T1$t1count[data_T1$t1count == 83] = "Israel"
+data_T1$t1count[data_T1$t1count == 57] = "Estonia"
+data_T1$t1count[data_T1$t1count == 24] = "O_Brazil"
+data_T1$t1count[data_T1$t1count == 19] = "O_Benin"
+data_T1$t1count[data_T1$t1count == 9] = "Australia"
+data_T1$t1count[data_T1$t1count == 94] = "Latvia"
+data_T1$t1count[data_T1$t1count == 140] = "O_Korea"
+data_T1$t1count[data_T1$t1count == 128] = "Norway"
+data_T1$t1count[data_T1$t1count == 123] = "New Zealand"
+data_T1$t1count[data_T1$t1count == 184] = "O_United Arab Emirates"
+
+library(plotly)
+table(data_T1$t1count, useNA="always")
+
+## remove source money text 
+data_T1 <- data_T1 %>% dplyr::select(-matches("t2capit_8_text"))
+
+## remove lang_text 
+data_T1 <- data_T1 %>% dplyr::select(-matches("t1lang_3_text"))
+
+## make timebuiss numeric 
+data_T1$t1timebuiss <- as.numeric(data_T1$t1timebuiss)
+
+## recode occupation past 
+# new category: Student = 7
+data_T1$t1octypp[data_T1$t1octypp_6_text == "Student"] = 7
+data_T1$t1octypp[data_T1$t1octypp_6_text == "student"] = 7
+data_T1 <- data_T1 %>% dplyr::select(-matches("t1octypp_6_text"))
+
+## remove start_t1
+data_T1 <- data_T1 %>% dplyr::select(-matches("start_t1"))
+
+## remove found NA 
+data_T1 <-data_T1[-is.na(data_T1$t1found),]
+
+## remove found (all 1!) 
+data_T1 <- data_T1 %>% dplyr::select(-matches("t1found"))
+
+## demo numeric
+data_T1_num <- data_T1 %>% dplyr::select(-matches("t1prod|t1id"))
+```
+
+## Participant characteristics
+
+```{r}
+mean(data_T1$t1age_4, na.rm =T)
+sd(data_T1$t1age_4, na.rm =T)
+
+library(janitor)
+tabyl(data_T1$t1sex, na.rm =T)
+
+tabyl(data_T1$t1senr, na.rm =T)
+  
+mean(data_T1$t1timebuiss, na.rm =T)/365
+sd(data_T1$t1timebuiss, na.rm =T)/365
+
+sum(is.na(data_T1$t1timebuiss))/nrow(data_T1)
+
+tabyl(data_T1$t1indu)
+
+paste0("Overall, ", nrow(data_T1)," entrepreneurs participated in the study. We excluded ", att_fails, " entrepreneurs who failed at least one of two attention check items parencite{Oppenheimer2009}")
+
+tabyl(data_T1$t1count, sort = T)
+
+```
+
+
+## Error summaries
+
+```{r error_count,include = F}
+# Add variable with count number of errors 
+library(tidyverse)
+library(splitstackshape)#
+
+
+error_df <- data_T1 %>% dplyr::select(matches("t1id|t.error|t.errser_.|t.errsel|t.errper_.|t.errpre_.|t.errund_."))
+
+error_df <- error_df %>% dplyr::select(-matches("ser_._text|errsel_._text|errper_._text|errpre_._text")) 
+
+## Error variables prolific
+# assign errser for error selected
+names(error_df)
+error_df$Errser <- mapply("[", asplit(error_df[19:27], 1), error_df$t1errsel)
+error_df$Errser
+
+# error performance score
+error_df$Errper <- mapply("[", asplit(error_df[29:37], 1), error_df$t1errsel)
+error_df$Errper
+
+
+# Error prevention scores
+error_df$Errpre <- mapply("[", asplit(error_df[38:46], 1), error_df$t1errsel)
+error_df$Errpre
+
+### Error understanding 
+error_df$Errund <- error_df$t1errund_1
+error_df$Errsel <- error_df$t1errsel
+
+Err_sum <- error_df %>% dplyr::select(Errsel, Errser, Errper, Errpre)
+
+data_T1 <- cbind(Err_sum, data_T1)
+
+```
+
+### Which error most serious
+
+```{r}
+# Make pie charts for severest error selected 
+slices <- c(length(which(error_df$Errsel==1)), length(which(error_df$Errsel==2)), length(which(error_df$Errsel==3)), length(which(error_df$Errsel==4)), length(which(error_df$Errsel==5)), length(which(error_df$Errsel==6)), length(which(error_df$Errsel==7)), length(which(error_df$Errsel==8)), length(which(error_df$Errsel==9)))
+
+lbls <- c("Achieving market presence", "Meeting market demands", "Interpersonal issues", "Disregarding competing firms", "Disregarding consumer behavior", "Disregarding time constraints", "Innovation or investment mistakes", "Financial fail descisions", "Other")
+pct <- round(slices/sum(slices)*100)
+lbls <- paste(lbls, pct) # add percents to labels
+lbls <- paste(lbls,"%",sep="") # ad % to labels
+
+colors <- c("#e5e5e5", "#b2b2b2", "#8b8b8b","#e5e5e5", "#b2b2b2", "#8b8b8b","#e5e5e5", "#b2b2b2", "#8b8b8b" )
+
+
+
+# Open a pdf file
+pdf("errorplot.pdf", width=9,height=5) 
+# 2. Create a plot
+pie(slices,labels = lbls, col = colors)
+# Close the pdf file
+dev.off() 
+
+
+slices <- c(length(which(error_df_india$t1errsel==1)), length(which(error_df_india$t1errsel==2)), length(which(error_df_india$t1errsel==3)), length(which(error_df_india$t1errsel==4)), length(which(error_df_india$t1errsel==5)), length(which(error_df_india$t1errsel==6)), length(which(error_df_india$t1errsel==7)), length(which(error_df_india$t1errsel==8)), length(which(error_df_india$t1errsel==9)))
+
+lbls <- c("Achieving market presence", "Meeting market demands", "Dealing with colleagues, stakeholders, clients", "Disregarding competing firms", "Disregarding consumer behavior", "Disregarding time constraints", "Innovation or investment mistakes", "Financial fail descisions", "Other")
+pct <- round(slices/sum(slices)*100)
+lbls <- paste(lbls, pct) # add percents to labels
+lbls <- paste(lbls,"%",sep="") # ad % to labels
+olors <- c("#e5e5e5", "#b2b2b2", "#8b8b8b","#e5e5e5", "#b2b2b2", "#8b8b8b","#e5e5e5", "#b2b2b2", "#8b8b8b" )
+
+pie(slices,labels = lbls,
+   main="Pie chart of severest errors", col = colors)
+
+
+
+```
+
+
+```{r corr, include = F}
+df_demo_num <- data_T1 %>%  dplyr::select(matches("source|t.duration|t1octyp|t1octyp.|t1expt_7|t1senr|t1found|t1date_7|t1date_8|t1inno|t1owner|t1coown|t1coownn_4|t1perown_1|t1func|t1mbus|t1mbusn_1|t1indu|t1opnec|t1count|t1age_4|t1sex|t1lang|t1edu|t1child|t1chin|t2emp|t2empn_1|t2act.|t2sumcap|t2capit|t2how_.|t2hod_.|t4_fundr|t4_fundr.|t1brex|t1timebuiss|t4fundr2|err")) %>% remove_all_labels(.)
+
+df_scales_new <- data_T1 %>% dplyr::select(-matches("date|consent|distribution|duration|enddate|externalref|finished|ipaddress|location|progress|email|prolificid|recipient|recorded|response|sc0|startdate|status|userlang|t1id|thriv_|t.duration|t1octyp|t1octyp.|t1expt_7|t1senr|t1found|t1date_7|t1date_8|t1inno|t1owner|t1coown|t1coownn_4|t1perown_1|t1func|t1mbus|t1mbusn_1|t1indu|t1prod|t1opnec|t1count|t1age_4|t1sex|t1lang|t1edu|t1child|t4fundr|t1chin|t2emp|t2empn_1|t2act.|t2sumcap|t2capit|t2how_.|t2hod_.|t4_fundr.|t1brex|t1timebuiss|t4fundr2|Err|prolific|comment|corona", ignore.case = T))
+
+
+# P1
+df_scales_new_1 <- df_scales_new %>% filter(source == 1) %>% select(-matches("source|vita|learn|busthreat|gopro|year|month|t1accriwd_4"))
+df_demo_num_1 <- df_demo_num  %>% filter(source == 1)
+comp_split_1 <- df_scales_new_1 %>% remove_all_labels(.) %>%
+  split.default(sub("_.", "", names(df_scales_new_1))) 
+
+comp_1 <- purrr::map(comp_split_1, ~ multicon::composite(.x, nomiss = 0.8), data = .x)
+alph_1 <- purrr::map(comp_split_1, ~ psych::alpha(.x), data = .x) %>%
+  purrr::map(~ .x$total)
+
+comp_df_1 <- do.call("cbind", comp_1) %>% cbind(., df_demo_num_1) %>% remove_all_labels(.)
+alph_df_1 <- do.call("rbind", alph_1) %>% round(., 2)
+
+# P2
+df_scales_new_2 <- df_scales_new %>% filter(source == 2) %>% select(-matches("source|busthreat|year|month|t1learn_11|t1accriwd_4"))
+df_demo_num_2 <- df_demo_num  %>% filter(source == 2)
+comp_split_2 <- df_scales_new_2 %>% remove_all_labels(.) %>%
+  split.default(sub("_.", "", names(df_scales_new_2))) 
+
+comp_2 <- purrr::map(comp_split_2, ~ multicon::composite(.x, nomiss = 0.8), data = .x)
+alph_2 <- purrr::map(comp_split_2, ~ psych::alpha(.x), data = .x) %>%
+  purrr::map(~ .x$total)
+
+comp_df_2 <- do.call("cbind", comp_2) %>% cbind(., df_demo_num_2) %>% remove_all_labels(.)
+alph_df_2 <- do.call("rbind", alph_2) %>% round(., 2)
+
+# P3
+df_scales_new_3 <- df_scales_new %>% filter(source == 3) %>% select(-matches("source|vita|learn|gopro|accri_|exploi|year|month|t1accriwd_4"))
+df_demo_num_3 <- df_demo_num  %>% filter(source == 3)
+comp_split_3 <- df_scales_new_3 %>% remove_all_labels(.) %>%
+  split.default(sub("_.", "", names(df_scales_new_3))) 
+
+comp_3 <- purrr::map(comp_split_3, ~ multicon::composite(.x, nomiss = 0.8), data = .x)
+alph_3 <- purrr::map(comp_split_3, ~ psych::alpha(.x), data = .x) %>%
+  purrr::map(~ .x$total)
+
+comp_df_3 <- do.call("cbind", comp_3) %>% cbind(., df_demo_num_3) %>% remove_all_labels(.)
+alph_df_3 <- do.call("rbind", alph_3) %>% round(., 2)
+
+comp_df <- rbind.fill(comp_df_1, comp_df_2, comp_df_3)
+```
+
+# Reliabilities 
+
+``` {r reliabilities, include = T, echo = F}
+# prolific 
+alph_df_1 %>%
+DT::datatable(
+    extensions = 'Buttons', 
+    options = list(dom = 'Bfrtip', 
+                   buttons = c('excel', "csv"),
+                   pageLength = 20))
+
+alph_df_2 %>%
+DT::datatable(
+    extensions = 'Buttons', 
+    options = list(dom = 'Bfrtip', 
+                   buttons = c('excel', "csv"),
+                   pageLength = 20))
+
+
+alph_df_3 %>%
+DT::datatable(
+    extensions = 'Buttons', 
+    options = list(dom = 'Bfrtip', 
+                   buttons = c('excel', "csv"),
+                   pageLength = 20))
+
+alph_df_india %>%
+DT::datatable(
+    extensions = 'Buttons', 
+    options = list(dom = 'Bfrtip', 
+                   buttons = c('excel', "csv"),
+                   pageLength = 20))
+
+```
+
+# Correlations
+
+```{r corr_table, include = F, echo = F}
+
+corstars <-function(x, method=c("pearson", "spearman"), removeTriangle=c("upper", "lower", "none"),
+                     result=c("none", "html", "latex")){
+    #Compute correlation matrix
+    require(Hmisc)
+    x <- as.matrix(x)
+    correlation_matrix<-rcorr(x, type=method[1])
+    R <- correlation_matrix$r # Matrix of correlation coeficients
+    p <- correlation_matrix$P # Matrix of p-value 
+    
+    ## Define notions for significance levels; spacing is important.
+    mystars <- ifelse(p < .001, "*** ", ifelse(p < .01, "**  ", ifelse(p < .05, "*   ", "    ")))
+    
+    ## trunctuate the correlation matrix to two decimal
+    R <- format(round(cbind(rep(-1.11, ncol(x)), R), 2))[,-1]
+    
+    ## build a new matrix that includes the correlations with their apropriate stars
+    Rnew <- matrix(paste(R, mystars, sep=""), ncol=ncol(x))
+    diag(Rnew) <- paste(diag(R), " ", sep="")
+    rownames(Rnew) <- colnames(x)
+    colnames(Rnew) <- paste(colnames(x), "", sep="")
+    
+    ## remove upper triangle of correlation matrix
+    if(removeTriangle[1]=="upper"){
+      Rnew <- as.matrix(Rnew)
+      Rnew[upper.tri(Rnew, diag = TRUE)] <- ""
+      Rnew <- as.data.frame(Rnew)
+    }
+    
+    ## remove lower triangle of correlation matrix
+    else if(removeTriangle[1]=="lower"){
+      Rnew <- as.matrix(Rnew)
+      Rnew[lower.tri(Rnew, diag = TRUE)] <- ""
+      Rnew <- as.data.frame(Rnew)
+    }
+    
+    else if(removeTriangle[1]=="none"){
+      Rnew <- as.matrix(Rnew)
+      Rnew <- as.data.frame(Rnew)
+    }
+    
+    ## remove last column and return the correlation matrix
+    Rnew <- cbind(Rnew[1:length(Rnew)-1])
+    if (result[1]=="none") return(Rnew)
+    else{
+      if(result[1]=="html") print(xtable(Rnew), type="html")
+      else print(xtable(Rnew), type="latex") 
+    }
+} 
+library(kableExtra)
+
+# delete non numeric column (t1inno)
+names(comp_df)
+comp_df$t1timebuiss
+
+comp_overall <- dplyr::select(comp_df, matches("t1accriwd|t1bis|t1chal|t1threat|Errpre|t1age_4|t1timebuiss|t1sex", ignore.case = F)) %>% select_if(is.numeric)
+
+corstar_p <- data.frame(corstars(comp_overall, removeTriangle = "none", result="none"))
+corstar_i <- data.frame(corstars(comp_overall, removeTriangle = "none", result="none"))
+```
+
+### Make table
+```{r}
+study_comp_df <- comp_df %>% dplyr::select(matches("t1cpl|t1se|t1wor|t2cpl|t2se|t2wor|grad_date|t1age|t1sex")) %>% dplyr::select(-matches("t1search|t2search"))
+
+study_comp_df <- study_comp_df %>% dplyr::select(t1cpl, t1se, t1wor, t2cpl, t2se, t2wor, t1age, t1sex, grad_date)
+
+Mean <- cbind(mean(study_comp_df$t1cpl), mean(study_comp_df$t1se), mean(study_comp_df$t1wor), mean(study_comp_df$t2cpl), mean(study_comp_df$t2se), mean(study_comp_df$t2wor), mean(study_comp_df$t1age), mean(study_comp_df$t1sex), mean(study_comp_df$grad_date, na.rm =T))
+
+SD <- cbind(sd(study_comp_df$t1cpl), sd(study_comp_df$t1se), sd(study_comp_df$t1wor), sd(study_comp_df$t2cpl), sd(study_comp_df$t2se), sd(study_comp_df$t2wor), sd(study_comp_df$t1age), sd(study_comp_df$t1sex), sd(study_comp_df$grad_date, na.rm =T))
+
+mean_sd <- as.data.frame(rbind(Mean, SD)) %>% t()
+
+names(study_comp_df)[names(study_comp_df) == "t1cpl"] <- "1. Career Goal Clarity T1"
+names(study_comp_df)[names(study_comp_df) == "t1se"] <- "2. Self-efficacy T1"
+names(study_comp_df)[names(study_comp_df) == "t1wor"] <- "3. Worry T1"
+names(study_comp_df)[names(study_comp_df) == "t2cpl"] <- "4. Career Goal Clarity T2"
+names(study_comp_df)[names(study_comp_df) == "t2se"] <- "5. Self-efficacy T2"
+names(study_comp_df)[names(study_comp_df) == "t2wor"] <- "6. Worry T2"
+names(study_comp_df)[names(study_comp_df) == "t1age"] <- "7. Age"
+names(study_comp_df)[names(study_comp_df) == "t1sex"] <- "8. Gender"
+names(study_comp_df)[names(study_comp_df) == "grad_date"] <- "9. Graduation date"
+
+
+corstar_select <- cbind(mean_sd, data.frame(corstars_2(study_comp_df, removeTriangle = "upper", result="none")))
+rownames(corstar_select) <- c("1. Career Goal Clarity T1", "2. Self-efficacy T1", "3. Worry T1", 
+                              "4. Career Goal Clarity T2", "5. Self-efficacy T2", "6. Worry T2",
+                              "7. Age", "8. Gender", "9. Graduation date")
+
+
+library(xtable)
+print(xtable(corstar_select, type = "latex"), file = "cor_comp_df.tex")
+```
+
+
+``` {r corr_table2, include = T, echo = F}
+corstar %>%
+  DT::datatable(
+    extensions = 'Buttons', 
+    options = list(dom = 'Bfrtip', 
+                   buttons = c('excel', "csv"),
+                   pageLength = 35,
+                  lengthMenu = c(20, 20, 20, 20)))
+
+```
+
+# LPA
+
+```{r}
+
+library(missForest)
+library(tidyLPA)
+## Selected Scales: t1netw, t1cconf
+LPA_df_prolific_12 = comp_df %>% filter(., source == 1|source == 2) %>% dplyr::select(t1threat, t1chal)
+LPA_df_prolific_3 = comp_df %>% filter(., source == 3) %>% dplyr::select(t1threat, Errper)
+```
+
+## Profile Plots
+
+### prolific 1 & 2
+
+```{r}
+LPA <- LPA_df_prolific_12 %>% estimate_profiles(n_profiles = 2:5, models = 1, package = "mplus")
+LPA
+plot_profiles(LPA, to_center = F)
+
+# Compare BIC
+library(mclust)
+clustering <- LPA_df_prolific %>%
+  na.omit() %>%
+  mutate_all(list(scale))
+BIC <- mclustBIC(clustering)
+plot(BIC)
+
+# Compute ICL
+LPA_df_nona <- LPA_df_prolific %>%
+  na.omit()
+ICL <- mclustICL(LPA_df_nona)
+
+# Get LRT
+LRT <- mclustBootstrapLRT(LPA_df_nona, modelName = "EEI")
+LRT
+
+# get data and fit 
+data_lpa <- get_data(LPA)
+fit_lpa <- get_fit(LPA)
+
+
+fit_lpa_kable <- knitr::kable(fit_lpa, escape=FALSE, digits = 2, format = "html", booktabs = TRUE, caption = "Fit LPA solutions Prolific") %>%
+   kable_styling(position = 'left', full_width = F)
+
+fit_lpa_kable
+```
+
+### prolific 3
+
+```{r}
+LPA <- LPA_df_prolific_3 %>% estimate_profiles(n_profiles = 2:5, models = 1, package = "mplus")
+LPA
+plot_profiles(LPA, to_center = F)
+```
+
+## BCH 
+
+```{r}
+LPA_df_prolific1 <- comp_df %>% filter(., source == 1|source == 2)
+LPA_df_prolific2 <- comp_df %>% filter(., source == 3)
+
+LPA_df_prolific1  <- LPA_df_prolific1[, !sapply(LPA_df_prolific1, is.character)]
+LPA_df_prolific2  <- LPA_df_prolific2[, !sapply(LPA_df_prolific2, is.character)]
+
+LPA_df_India  <- comp_df_india[, !sapply(comp_df_india, is.character)]
+
+```
+
+### Step 1: PROLIFIC 1
+
+```{r}
+step1 <- mplusObject(TITLE = "BCH Step 1;",
+VARIABLE =
+"usevar = t1chal t1threat;
+CLASSES = c(4);
+AUXILIARY = 
+t1explor t1accriwd t1learn t1vita Errpre
+t1sex t1age_4 t1expt_7;",
+ANALYSIS  ="TYPE = MIXTURE;",
+
+SAVEDATA = "FILE = file=2.dat; save=bch;
+Missflag= 999;",           
+OUTPUT =   "sampstat residual tech11 tech14",
+usevariables = colnames(LPA_df_prolific1),
+rdata = LPA_df_prolific1)
+     
+
+step1_fit_P1 <- mplusModeler(step1,
+                            dataout = "Step1_3step_P1.dat",
+                            modelout= "Step1_3step_P1.inp",
+                            check=TRUE, run = TRUE, hashfilename = FALSE)
+step1_fit_P1
+```
+
+### Step 1: PROLIFIC 2
+
+```{r}
+step1 <- mplusObject(TITLE = "BCH Step 1;",
+VARIABLE =
+"usevar = Errper t1threat;
+CLASSES = c(4);
+AUXILIARY = 
+t1explor t1accriwd t1learn t1vita
+t1sex t1age_4 t1expt_7;",
+ANALYSIS  ="TYPE = MIXTURE;",
+
+SAVEDATA = "FILE = file=2.dat; save=bch;
+Missflag= 999;",           
+OUTPUT =   "sampstat residual tech11 tech14",
+usevariables = colnames(LPA_df_prolific2),
+rdata = LPA_df_prolific2)
+     
+
+step1_fit_P2 <- mplusModeler(step1,
+                            dataout = "Step1_3step_P2.dat",
+                            modelout= "Step1_3step_P2.inp",
+                            check=TRUE, run = TRUE, hashfilename = FALSE)
+step1_fit_P2
+```
+
+### Step 1: test equality
+
+```{r}
+
+comp_overall <- comp_df %>% select_if(is.numeric)
+comp_overall$source <- ifelse(comp_overall$source == 2|comp_overall$source == 1, 1, 2)
+
+library(MplusAutomation)
+step1 <- mplusObject(TITLE = "BCH Step 1;",
+VARIABLE =
+"usevar = Errper t1threat;
+CLASSES = c(4) g(2);
+knownclass = g (source=1 source=2);
+AUXILIARY = t1explor
+t1gopro t1learn t1vita source;",
+ANALYSIS  ="TYPE = MIXTURE;
+ starts = 4000 200;",
+MODEL = "
+%c#1.g#1%
+[Errper] (c1);
+[t1threat*-1] (t1);
+
+%c#1.g#2%
+[Errper] (c11);
+[t1threat*-1] (t11);
+
+%c#2.g#1%
+[Errper] (c2);
+[t1threat*1] (t2);
+
+%c#2.g#2%
+[Errper] (c22);
+[t1threat*1] (t22);
+
+%c#3.g#1%
+[Errper] (c3);
+[t1threat*-0.5] (t3);
+
+%c#3.g#2%
+[Errper] (c33);
+[t1threat*-0.5] (t33);
+
+%c#4.g#1%
+[Errper] (c4);
+[t1threat*0.5] (t4);
+
+%c#4.g#2%
+[Errper] (c44);
+[t1threat*0.5] (t44);",
+SAVEDATA = "FILE = file=2.dat; save=bch;
+Missflag= 999;",           
+OUTPUT =   "sampstat residual tech11 tech14",
+usevariables = colnames(comp_overall),
+rdata = comp_overall)
+     
+
+step1_fit_no_equal <- mplusModeler(step1,
+                            dataout = "Step1_3step_no_equal.dat",
+                            modelout= "Step1_3step_no_equal.inp",
+                            check=TRUE, run = TRUE, hashfilename = FALSE)
+
+
+# equality constraints
+library(MplusAutomation)
+step1_eq <- mplusObject(TITLE = "BCH Step 1;",
+VARIABLE =
+"usevar = Errper t1threat;
+CLASSES = c(4) g(2);
+knownclass = g (source=1 source=2);
+AUXILIARY = t1explor
+t1gopro t1learn t1vita source;",
+ANALYSIS  ="TYPE = MIXTURE;
+ starts = 4000 200;",
+MODEL = "
+%c#1.g#1%
+[Errper] (c1)
+[t1threat*-1] (t1);
+
+%c#1.g#2%
+[Errper] (c1)
+[t1threat*-1] (t1);
+
+%c#2.g#1%
+[Errper] (c2)
+[t1threat*1] (t2);
+
+%c#2.g#2%
+[Errper] (c2)
+[t1threat*1] (t2);
+
+%c#3.g#1%
+[Errper] (c3)
+[t1threat*-0.5] (t3);
+
+%c#3.g#2%
+[Errper] (c3)
+[t1threat*-0.5] (t3);
+
+%c#4.g#1%
+[Errper] (c4)
+[t1threat*0.5] (t4);
+
+%c#4.g#2%
+[Errper] (c4)
+[t1threat*0.5] (t4);",
+
+SAVEDATA = "FILE = file=2.dat; save=bch;
+Missflag= 999;",           
+OUTPUT =   "sampstat residual tech11 tech14",
+usevariables = colnames(comp_overall),
+rdata = comp_overall)
+     
+
+step1_fit_eq <- mplusModeler(step1_eq,
+                            dataout = "step1_fit_equal.dat",
+                            modelout= "step1_fit_equal.inp",
+                            check=TRUE, run = TRUE, hashfilename = FALSE)
+step1_fit_eq
+
+
+```
+
+### Step 1: PROLIFIC 1 & 2
+
+```{r}
+step1 <- mplusObject(TITLE = "BCH Step 1;",
+VARIABLE =
+"usevar = t1chal t1threat;
+CLASSES = c(4);
+AUXILIARY = t1explor t1accriwd t1learn t1vita Errpre t1duration t1bis
+t1sex t1age_4 t1expt_7;",
+ANALYSIS  ="TYPE = MIXTURE;",
+
+SAVEDATA = "FILE = file=2.dat; save=bch;
+Missflag= 999;",           
+OUTPUT =   "sampstat residual tech11 tech14",
+usevariables = colnames(LPA_df_prolific_all),
+rdata = LPA_df_prolific_all)
+     
+
+step1_fit_Pboth <- mplusModeler(step1,
+                            dataout = "Step1_3step_both.dat",
+                            modelout= "Step1_3step_both.inp",
+                            check=TRUE, run = TRUE, hashfilename = FALSE)
+step1_fit_Pboth
+```
+
+
+### Step 2 PROLIFIC 1 & 2
+
+```{r}
+savedata_P1 <- as.data.frame(step1_fit_P1[["results"]]
+                                   [["savedata"]])
+
+savedata_P2 <- as.data.frame(step1_fit_P2[["results"]]
+                                   [["savedata"]])
+
+savedata_eq <- as.data.frame(step1_fit_eq[["results"]]
+                                   [["savedata"]])
+
+savedata_both <- as.data.frame(step1_fit_Pboth[["results"]]
+                                   [["savedata"]])
+
+```
+
+### Step 3 Exploration prolific 1 
+
+```{r eval = F}
+library(glue)
+step3  <- mplusObject(
+  TITLE = "BCH step 3", 
+  
+  VARIABLE = 
+ "missing are all (999);
+  classes = c(4);
+  usevar =  t1explor BCHW1 BCHW2 BCHW3 BCHW4;
+ training = BCHW1 BCHW2 BCHW3 BCHW4(bch);",
+  
+  ANALYSIS = 
+ "estimator = mlr; 
+  type = mixture; 
+  starts = 0;",
+  
+  MODEL =
+  glue(
+ " %OVERALL%
+ 
+    %C#1%
+  [t1explor](e1);    ! conditional distal mean 
+  t1explor;          ! conditional distal variance (freely estimated)
+  
+  
+  %C#2%
+  [t1explor](e2);    ! conditional distal mean 
+  t1explor;          ! conditional distal variance (freely estimated)
+  
+  %C#3%
+   
+  [t1explor](e3);    ! conditional distal mean 
+  t1explor;          ! conditional distal variance (freely estimated)
+  
+  %C#4%
+    [t1explor](e4);    ! conditional distal mean 
+  t1explor;          ! conditional distal variance (freely estimated)"),
+ 
+  
+  MODELCONSTRAINT = 
+   "New (d_e_12 d_e_13 d_e_14 d_e_23 d_e_24 d_e_34); 
+    d_e_12 = e1-e2;  ! test pairwise distal mean derences 1 vs 2
+ d_e_13 = e1-e3;
+ d_e_14 = e1-e4;
+ d_e_23 = e2-e3;
+ d_e_24 = e2-e4;
+ d_e_34 = e3-e4;",
+ OUTPUT =   "sampstat residual tech11 tech14;", 
+ usevariables = colnames(savedata_P1),
+  rdata = savedata_P1)
+
+step3_fit_P1 <- mplusModeler(step3,
+               dataout= "Step3_3step_P1.dat", 
+               modelout="Step3_3step_P1.inp", 
+               check=TRUE, run = TRUE, hashfilename = FALSE)
+
+step3_fit_P1
+```
+
+### Step 3 Exploration prolific 2
+
+```{r eval = F}
+library(glue)
+step3  <- mplusObject(
+  TITLE = "BCH step 3", 
+  
+  VARIABLE = 
+ "missing are all (999);
+  classes = c(4);
+  usevar =  t1explor BCHW1 BCHW2 BCHW3 BCHW4;
+ training = BCHW1 BCHW2 BCHW3 BCHW4(bch);",
+  
+  ANALYSIS = 
+ "estimator = mlr; 
+  type = mixture; 
+  starts = 0;",
+  
+  MODEL =
+  glue(
+ " %OVERALL%
+ 
+    %C#1%
+  [t1explor](e1);    ! conditional distal mean 
+  t1explor;          ! conditional distal variance (freely estimated)
+  
+  
+  %C#2%
+  [t1explor](e2);    ! conditional distal mean 
+  t1explor;          ! conditional distal variance (freely estimated)
+  
+  %C#3%
+   
+  [t1explor](e3);    ! conditional distal mean 
+  t1explor;          ! conditional distal variance (freely estimated)
+  
+  %C#4%
+    [t1explor](e4);    ! conditional distal mean 
+  t1explor;          ! conditional distal variance (freely estimated)"),
+ 
+  
+  MODELCONSTRAINT = 
+   "New (d_e_12 d_e_13 d_e_14 d_e_23 d_e_24 d_e_34); 
+    d_e_12 = e1-e2;  ! test pairwise distal mean derences 1 vs 2
+ d_e_13 = e1-e3;
+ d_e_14 = e1-e4;
+ d_e_23 = e2-e3;
+ d_e_24 = e2-e4;
+ d_e_34 = e3-e4;",
+ OUTPUT =   "sampstat residual tech11 tech14;", 
+ usevariables = colnames(savedata_P2),
+  rdata = savedata_P2)
+
+step3_fit_P2 <- mplusModeler(step3,
+               dataout= "Step3_3step_P2.dat", 
+               modelout="Step3_3step_P2.inp", 
+               check=TRUE, run = TRUE, hashfilename = FALSE)
+
+step3_fit_P2
+```
+
+### Step 3 Exploration both 
+
+```{r eval = F}
+library(glue)
+step3  <- mplusObject(
+  TITLE = "BCH step 3", 
+  
+  VARIABLE = 
+ "missing are all (999);
+  classes = c(4);
+  usevar =  t1explor BCHW1 BCHW2 BCHW3 BCHW4;
+ training = BCHW1 BCHW2 BCHW3 BCHW4(bch);",
+  
+  ANALYSIS = 
+ "estimator = mlr; 
+  type = mixture; 
+  starts = 0;",
+  
+  MODEL =
+  glue(
+ " %OVERALL%
+ 
+    %C#1%
+  [t1explor](e1);    ! conditional distal mean 
+  t1explor;          ! conditional distal variance (freely estimated)
+  
+  
+  %C#2%
+  [t1explor](e2);    ! conditional distal mean 
+  t1explor;          ! conditional distal variance (freely estimated)
+  
+  %C#3%
+   
+  [t1explor](e3);    ! conditional distal mean 
+  t1explor;          ! conditional distal variance (freely estimated)
+  
+  %C#4%
+    [t1explor](e4);    ! conditional distal mean 
+  t1explor;          ! conditional distal variance (freely estimated)"),
+ 
+  
+  MODELCONSTRAINT = 
+   "New (d_e_12 d_e_13 d_e_14 d_e_23 d_e_24 d_e_34); 
+    d_e_12 = e1-e2;  ! test pairwise distal mean derences 1 vs 2
+ d_e_13 = e1-e3;
+ d_e_14 = e1-e4;
+ d_e_23 = e2-e3;
+ d_e_24 = e2-e4;
+ d_e_34 = e3-e4;",
+ OUTPUT =   "sampstat residual tech11 tech14;", 
+ usevariables = colnames(savedata_eq),
+  rdata = savedata_eq)
+
+step3_fit_eq <- mplusModeler(step3,
+               dataout= "Step3_3step_eq.dat", 
+               modelout="Step3_3step_eq.inp", 
+               check=TRUE, run = TRUE, hashfilename = FALSE)
+
+step3_fit_eq
+```
+
+### Step 3 Exploration both with controls 
+
+```{r eval = F}
+library(glue)
+step3  <- mplusObject(
+  TITLE = "BCH step 3", 
+  
+  VARIABLE = 
+ "missing are all (999);
+  classes = c(4);
+  usevar =  t1explor BCHW1 BCHW2 BCHW3 BCHW4 T1SEX T1AGE_4 T1BIS;
+ training = BCHW1 BCHW2 BCHW3 BCHW4(bch);",
+  
+  ANALYSIS = 
+ "estimator = mlr; 
+  type = mixture; 
+  starts = 0;",
+  
+  MODEL =
+  glue(
+ " %OVERALL%
+ C ON t1sex;
+ C ON T1AGE_4;
+ C ON T1BIS;
+
+ t1explor ON t1sex;
+ t1explor ON T1AGE_4;
+ t1explor ON T1BIS;
+
+ 
+    %C#1%
+  [t1explor](e1);    ! conditional distal mean 
+  t1explor;          ! conditional distal variance (freely estimated)
+  
+  
+  %C#2%
+  [t1explor](e2);    ! conditional distal mean 
+  t1explor;          ! conditional distal variance (freely estimated)
+  
+  %C#3%
+   
+  [t1explor](e3);    ! conditional distal mean 
+  t1explor;          ! conditional distal variance (freely estimated)
+  
+  %C#4%
+    [t1explor](e4);    ! conditional distal mean 
+  t1explor;          ! conditional distal variance (freely estimated)"),
+ 
+  
+  MODELCONSTRAINT = 
+   "New (d_e_12 d_e_13 d_e_14 d_e_23 d_e_24 d_e_34); 
+    d_e_12 = e1-e2;  ! test pairwise distal mean derences 1 vs 2
+ d_e_13 = e1-e3;
+ d_e_14 = e1-e4;
+ d_e_23 = e2-e3;
+ d_e_24 = e2-e4;
+ d_e_34 = e3-e4;",
+ OUTPUT =   "sampstat residual tech11 tech14;", 
+ usevariables = colnames(savedata_both),
+  rdata = savedata_both)
+
+step3_fit_both <- mplusModeler(step3,
+               dataout= "Step3_3step_both.dat", 
+               modelout="Step3_3step_both.inp", 
+               check=TRUE, run = TRUE, hashfilename = FALSE)
+
+step3_fit_both
+```
+
+### Step 3 Learning prolific 1 & 2
+
+```{r eval = F}
+library(glue)
+step3  <- mplusObject(
+  TITLE = "BCH step 3", 
+  
+  VARIABLE = 
+ "missing are all (999);
+  classes = c(4);
+  usevar =  t1learn BCHW1 BCHW2 BCHW3 BCHW4;
+ training = BCHW1 BCHW2 BCHW3 BCHW4(bch);",
+  
+  ANALYSIS = 
+ "estimator = mlr; 
+  type = mixture; 
+  starts = 0;",
+  
+  MODEL =
+  glue(
+ " %OVERALL%
+ 
+    %C#1%
+  [t1learn](e1);    ! conditional distal mean 
+  t1learn;          ! conditional distal variance (freely estimated)
+  
+  
+  %C#2%
+  [t1learn](e2);    ! conditional distal mean 
+  t1learn;          ! conditional distal variance (freely estimated)
+  
+  %C#3%
+   
+  [t1learn](e3);    ! conditional distal mean 
+  t1learn;          ! conditional distal variance (freely estimated)
+  
+  %C#4%
+    [t1learn](e4);    ! conditional distal mean 
+  t1learn;          ! conditional distal variance (freely estimated)"),
+ 
+  
+  MODELCONSTRAINT = 
+   "New (d_e_12 d_e_13 d_e_14 d_e_23 d_e_24 d_e_34); 
+    d_e_12 = e1-e2;  ! test pairwise distal mean derences 1 vs 2
+ d_e_13 = e1-e3;
+ d_e_14 = e1-e4;
+ d_e_23 = e2-e3;
+ d_e_24 = e2-e4;
+ d_e_34 = e3-e4;",
+ OUTPUT =   "sampstat residual tech11 tech14;", 
+ usevariables = colnames(savedata_both),
+  rdata = savedata_both)
+
+step3_fit_P1 <- mplusModeler(step3,
+               dataout= "Step3_3step_P1.dat", 
+               modelout="Step3_3step_P1.inp", 
+               check=TRUE, run = TRUE, hashfilename = FALSE)
+
+step3_fit_P1
+```
+
+### Step 3 Vitality prolific 1 & 2
+
+```{r eval = F}
+library(glue)
+step3  <- mplusObject(
+  TITLE = "BCH step 3", 
+  
+  VARIABLE = 
+ "missing are all (999);
+  classes = c(4);
+  usevar =  t1vita BCHW1 BCHW2 BCHW3 BCHW4;
+ training = BCHW1 BCHW2 BCHW3 BCHW4(bch);",
+  
+  ANALYSIS = 
+ "estimator = mlr; 
+  type = mixture; 
+  starts = 0;",
+  
+  MODEL =
+  glue(
+ " %OVERALL%
+ 
+    %C#1%
+  [t1vita](e1);    ! conditional distal mean 
+  t1vita;          ! conditional distal variance (freely estimated)
+  
+  
+  %C#2%
+  [t1vita](e2);    ! conditional distal mean 
+  t1vita;          ! conditional distal variance (freely estimated)
+  
+  %C#3%
+   
+  [t1vita](e3);    ! conditional distal mean 
+  t1vita;          ! conditional distal variance (freely estimated)
+  
+  %C#4%
+    [t1vita](e4);    ! conditional distal mean 
+  t1vita;          ! conditional distal variance (freely estimated)"),
+ 
+  
+  MODELCONSTRAINT = 
+   "New (d_e_12 d_e_13 d_e_14 d_e_23 d_e_24 d_e_34); 
+    d_e_12 = e1-e2;  ! test pairwise distal mean derences 1 vs 2
+ d_e_13 = e1-e3;
+ d_e_14 = e1-e4;
+ d_e_23 = e2-e3;
+ d_e_24 = e2-e4;
+ d_e_34 = e3-e4;",
+ OUTPUT =   "sampstat residual tech11 tech14;", 
+ usevariables = colnames(savedata_both),
+  rdata = savedata_both)
+
+step3_fit_P1 <- mplusModeler(step3,
+               dataout= "Step3_3step_P1.dat", 
+               modelout="Step3_3step_P1.inp", 
+               check=TRUE, run = TRUE, hashfilename = FALSE)
+
+step3_fit_P1
+```
+
+### Step 3 Accri prolific 1 
+
+```{r eval = F}
+library(glue)
+step3  <- mplusObject(
+  TITLE = "BCH step 3", 
+  
+  VARIABLE = 
+ "missing are all (999);
+  classes = c(4);
+  usevar =  t1accriw BCHW1 BCHW2 BCHW3 BCHW4;
+ training = BCHW1 BCHW2 BCHW3 BCHW4(bch);",
+  
+  ANALYSIS = 
+ "estimator = mlr; 
+  type = mixture; 
+  starts = 0;",
+  
+  MODEL =
+  glue(
+ " %OVERALL%
+ 
+    %C#1%
+  [t1accriw](e1);    ! conditional distal mean 
+  t1accriw;          ! conditional distal variance (freely estimated)
+  
+  
+  %C#2%
+  [t1accriw](e2);    ! conditional distal mean 
+  t1accriw;          ! conditional distal variance (freely estimated)
+  
+  %C#3%
+   
+  [t1accriw](e3);    ! conditional distal mean 
+  t1accriw;          ! conditional distal variance (freely estimated)
+  
+  %C#4%
+    [t1accriw](e4);    ! conditional distal mean 
+  t1accriw;          ! conditional distal variance (freely estimated)"),
+ 
+  
+  MODELCONSTRAINT = 
+   "New (d_e_12 d_e_13 d_e_14 d_e_23 d_e_24 d_e_34); 
+    d_e_12 = e1-e2;  ! test pairwise distal mean derences 1 vs 2
+ d_e_13 = e1-e3;
+ d_e_14 = e1-e4;
+ d_e_23 = e2-e3;
+ d_e_24 = e2-e4;
+ d_e_34 = e3-e4;",
+ OUTPUT =   "sampstat residual tech11 tech14;", 
+ usevariables = colnames(savedata_P1),
+  rdata = savedata_P1)
+
+step3_fit_P1 <- mplusModeler(step3,
+               dataout= "Step3_3step_P1.dat", 
+               modelout="Step3_3step_P1.inp", 
+               check=TRUE, run = TRUE, hashfilename = FALSE)
+
+step3_fit_P1
+```
+
+### Step 3 Accri prolific 2
+
+```{r eval = F}
+library(glue)
+step3  <- mplusObject(
+  TITLE = "BCH step 3", 
+  
+  VARIABLE = 
+ "missing are all (999);
+  classes = c(4);
+  usevar =  t1accriw BCHW1 BCHW2 BCHW3 BCHW4;
+ training = BCHW1 BCHW2 BCHW3 BCHW4(bch);",
+  
+  ANALYSIS = 
+ "estimator = mlr; 
+  type = mixture; 
+  starts = 0;",
+  
+  MODEL =
+  glue(
+ " %OVERALL%
+ 
+    %C#1%
+  [t1accriw](e1);    ! conditional distal mean 
+  t1accriw;          ! conditional distal variance (freely estimated)
+  
+  
+  %C#2%
+  [t1accriw](e2);    ! conditional distal mean 
+  t1accriw;          ! conditional distal variance (freely estimated)
+  
+  %C#3%
+   
+  [t1accriw](e3);    ! conditional distal mean 
+  t1accriw;          ! conditional distal variance (freely estimated)
+  
+  %C#4%
+    [t1accriw](e4);    ! conditional distal mean 
+  t1accriw;          ! conditional distal variance (freely estimated)"),
+ 
+  
+  MODELCONSTRAINT = 
+   "New (d_e_12 d_e_13 d_e_14 d_e_23 d_e_24 d_e_34); 
+    d_e_12 = e1-e2;  ! test pairwise distal mean derences 1 vs 2
+ d_e_13 = e1-e3;
+ d_e_14 = e1-e4;
+ d_e_23 = e2-e3;
+ d_e_24 = e2-e4;
+ d_e_34 = e3-e4;",
+ OUTPUT =   "sampstat residual tech11 tech14;", 
+ usevariables = colnames(savedata_P2),
+  rdata = savedata_P2)
+
+step3_fit_P2 <- mplusModeler(step3,
+               dataout= "Step3_3step_P2.dat", 
+               modelout="Step3_3step_P2.inp", 
+               check=TRUE, run = TRUE, hashfilename = FALSE)
+
+step3_fit_P2
+```
+
+### Step 3 Errpre prolific 1
+
+```{r eval = F}
+library(glue)
+step3  <- mplusObject(
+  TITLE = "BCH step 3", 
+  
+  VARIABLE = 
+ "missing are all (999);
+  classes = c(4);
+  usevar =  Errpre BCHW1 BCHW2 BCHW3 BCHW4;
+ training = BCHW1 BCHW2 BCHW3 BCHW4(bch);",
+  
+  ANALYSIS = 
+ "estimator = mlr; 
+  type = mixture; 
+  starts = 0;",
+  
+  MODEL =
+  glue(
+ " %OVERALL%
+ 
+    %C#1%
+  [Errpre](e1);    ! conditional distal mean 
+  Errpre;          ! conditional distal variance (freely estimated)
+  
+  
+  %C#2%
+  [Errpre](e2);    ! conditional distal mean 
+  Errpre;          ! conditional distal variance (freely estimated)
+  
+  %C#3%
+   
+  [Errpre](e3);    ! conditional distal mean 
+  Errpre;          ! conditional distal variance (freely estimated)
+  
+  %C#4%
+    [Errpre](e4);    ! conditional distal mean 
+  Errpre;          ! conditional distal variance (freely estimated)"),
+ 
+  
+  MODELCONSTRAINT = 
+   "New (d_e_12 d_e_13 d_e_14 d_e_23 d_e_24 d_e_34); 
+    d_e_12 = e1-e2;  ! test pairwise distal mean derences 1 vs 2
+ d_e_13 = e1-e3;
+ d_e_14 = e1-e4;
+ d_e_23 = e2-e3;
+ d_e_24 = e2-e4;
+ d_e_34 = e3-e4;",
+ OUTPUT =   "sampstat residual tech11 tech14;", 
+ usevariables = colnames(savedata_P1),
+  rdata = savedata_P1)
+
+step3_fit_P1 <- mplusModeler(step3,
+               dataout= "Step3_3step_P1.dat", 
+               modelout="Step3_3step_P1.inp", 
+               check=TRUE, run = TRUE, hashfilename = FALSE)
+
+step3_fit_P1
+```
+
+### Step 3 Errpre prolific 1 & 2
+
+```{r eval = F}
+library(glue)
+step3  <- mplusObject(
+  TITLE = "BCH step 3", 
+  
+  VARIABLE = 
+ "missing are all (999);
+  classes = c(4);
+  usevar =  Errpre BCHW1 BCHW2 BCHW3 BCHW4;
+ training = BCHW1 BCHW2 BCHW3 BCHW4(bch);",
+  
+  ANALYSIS = 
+ "estimator = mlr; 
+  type = mixture; 
+  starts = 0;",
+  
+  MODEL =
+  glue(
+ " %OVERALL%
+ 
+    %C#1%
+  [Errpre](e1);    ! conditional distal mean 
+  Errpre;          ! conditional distal variance (freely estimated)
+  
+  
+  %C#2%
+  [Errpre](e2);    ! conditional distal mean 
+  Errpre;          ! conditional distal variance (freely estimated)
+  
+  %C#3%
+   
+  [Errpre](e3);    ! conditional distal mean 
+  Errpre;          ! conditional distal variance (freely estimated)
+  
+  %C#4%
+    [Errpre](e4);    ! conditional distal mean 
+  Errpre;          ! conditional distal variance (freely estimated)"),
+ 
+  
+  MODELCONSTRAINT = 
+   "New (d_e_12 d_e_13 d_e_14 d_e_23 d_e_24 d_e_34); 
+    d_e_12 = e1-e2;  ! test pairwise distal mean derences 1 vs 2
+ d_e_13 = e1-e3;
+ d_e_14 = e1-e4;
+ d_e_23 = e2-e3;
+ d_e_24 = e2-e4;
+ d_e_34 = e3-e4;",
+ OUTPUT =   "sampstat residual tech11 tech14;", 
+ usevariables = colnames(savedata_both),
+  rdata = savedata_both)
+
+step3_fit_P1 <- mplusModeler(step3,
+               dataout= "Step3_3step_P1.dat", 
+               modelout="Step3_3step_P1.inp", 
+               check=TRUE, run = TRUE, hashfilename = FALSE)
+
+step3_fit_P1
+```
+
+
+
+
